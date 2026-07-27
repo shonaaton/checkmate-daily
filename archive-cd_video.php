@@ -1,89 +1,106 @@
 <?php
 /**
- * Master Video Hub (archive-cd_video.php)
- * Dark mode library showing all videos and shorts.
+ * Video Library Archive
  */
-get_header(); ?>
+get_header();
+?>
 
-<main id="cd-main" style="background: #0a0a0a; min-height: 100vh; padding: 40px 0;">
-    <div class="container">
-        
-        <div class="cd-section-head" style="border-bottom: 2px solid #FF0000; padding-bottom: 10px; margin-bottom: 30px;">
-            <h1 style="color: #fff; margin:0; font-family: var(--cd-font-heading); text-transform: uppercase;">Checkmate Daily TV Library</h1>
+<main id="cd-main" class="cd-video-library-page">
+    <section class="cd-video-library-hero">
+        <div class="container">
+            <div class="cd-video-kicker">Checkmate Daily TV</div>
+            <h1>Chess Video Coverage</h1>
+            <p>Interviews, tournament moments, analysis clips, and short chess stories from Checkmate Daily.</p>
+            <a href="https://www.youtube.com/@CheckmateDailyChess?sub_confirmation=1" target="_blank" rel="noopener" class="cd-video-subscribe">Subscribe on YouTube</a>
+        </div>
+    </section>
+
+    <div class="container cd-video-library-wrap">
+        <div class="cd-section-head cd-video-library-head">
+            <h2>Latest Coverage</h2>
         </div>
 
-        <div class="cd-news-grid" style="margin-bottom: 50px;">
-            <?php 
-            // The main query already excludes Shorts thanks to our functions.php code!
-            if ( have_posts() ) : while ( have_posts() ) : the_post(); 
-                $yt_url = get_post_meta(get_the_ID(), '_cd_youtube_url', true);
-                $v_id = cd_extract_youtube_id($yt_url);
+        <div class="cd-video-library-grid">
+            <?php if ( have_posts() ) : while ( have_posts() ) : the_post();
+                $yt_url    = get_post_meta( get_the_ID(), '_cd_youtube_url', true );
+                $v_id      = cd_extract_youtube_id( $yt_url );
+                $playlists = get_the_terms( get_the_ID(), 'video_playlist' );
+                $label     = ( $playlists && ! is_wp_error( $playlists ) ) ? $playlists[0]->name : 'Coverage';
             ?>
-            <div class="cd-news-card" style="background: #111; border: 1px solid #222;">
-                <div class="cd-news-card-img" style="position: relative;">
-                    <a href="<?php the_permalink(); ?>">
-                        <?php if ($v_id) : ?>
-                            <?php cd_render_youtube_thumbnail($v_id, array('quality'=>'hq720','fallback_quality'=>'hqdefault','alt'=>get_the_title(),'style'=>'width: 100%; display: block; opacity: 0.85;')); ?>
-                            <div style="position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); background: rgba(255, 0, 0, 0.9); color: #fff; width: 45px; height: 45px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 18px; padding-left: 3px;">▶</div>
-                        <?php else: ?>
-                            <div style="background: #222; padding-bottom: 56.25%;"></div>
-                        <?php endif; ?>
-                    </a>
+            <article class="cd-library-video-card">
+                <a href="<?php the_permalink(); ?>" class="cd-library-video-thumb" aria-label="<?php echo esc_attr( get_the_title() ); ?>">
+                    <?php if ( $v_id ) : ?>
+                        <?php cd_render_youtube_thumbnail( $v_id, array(
+                            'quality'          => 'hq720',
+                            'fallback_quality' => 'hqdefault',
+                            'alt'              => get_the_title(),
+                            'class'            => 'cd-library-thumb-img',
+                            'width'            => 640,
+                            'height'           => 360,
+                        ) ); ?>
+                    <?php else : ?>
+                        <span class="cd-library-thumb-placeholder"></span>
+                    <?php endif; ?>
+                    <span class="cd-library-play" aria-hidden="true">&#9654;</span>
+                </a>
+
+                <div class="cd-library-video-body">
+                    <span class="cd-library-label"><?php echo esc_html( $label ); ?></span>
+                    <h2><a href="<?php the_permalink(); ?>"><?php the_title(); ?></a></h2>
+                    <div class="cd-library-meta"><?php echo esc_html( get_the_date() ); ?></div>
                 </div>
-                <div class="cd-news-card-body" style="padding: 15px;">
-                    <div class="cd-news-card-title">
-                        <a href="<?php the_permalink(); ?>" style="color: #fff; font-size: 16px; font-weight: bold;"><?php the_title(); ?></a>
-                    </div>
-                    <div style="color: #888; font-size: 12px; margin-top: 8px;"><?php echo get_the_date(); ?></div>
-                </div>
-            </div>
+            </article>
             <?php endwhile; else : ?>
-                <p style="color: #fff; grid-column: 1/-1;">More coverage coming soon.</p>
+                <div class="cd-video-empty">More coverage coming soon.</div>
             <?php endif; ?>
         </div>
-        
-        <div class="cd-pagination" style="margin-bottom: 60px;">
-            <?php echo paginate_links(array('prev_text' => '← Newer', 'next_text' => 'Older →')); ?>
+
+        <?php cd_pagination(); ?>
+
+        <div class="cd-section-head cd-video-library-head cd-video-shorts-head">
+            <h2>Shorts</h2>
         </div>
 
-        <div class="cd-section-head" style="border-bottom: 2px solid #FF0000; padding-bottom: 10px; margin-bottom: 30px;">
-            <h2 style="color: #fff; margin:0; font-family: var(--cd-font-heading); text-transform: uppercase;">All Shorts</h2>
-        </div>
-        
-        <div style="display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 15px; margin-bottom: 50px;">
-        <?php 
-            // Custom query to fetch ONLY the Shorts for the bottom grid
-            $shorts_args = array(
+        <div class="cd-library-shorts-grid">
+            <?php
+            $shorts_q = new WP_Query( array(
                 'post_type'      => 'cd_video',
                 'post_status'    => 'publish',
                 'posts_per_page' => 12,
                 'tax_query'      => array(
-                    array('taxonomy' => 'video_playlist', 'field' => 'slug', 'terms' => 'shorts')
+                    array( 'taxonomy' => 'video_playlist', 'field' => 'slug', 'terms' => 'shorts' ),
                 ),
-            );
-            $shorts_q = new WP_Query($shorts_args);
-            if ($shorts_q->have_posts()) : while ($shorts_q->have_posts()) : $shorts_q->the_post();
-                $yt_url = get_post_meta(get_the_ID(), '_cd_youtube_url', true);
-                $v_id = cd_extract_youtube_id($yt_url);
-        ?>
-            <div style="background: #111; border: 1px solid #222; border-radius: 8px; overflow: hidden; transition: transform 0.2s;">
-                <div style="position: relative; padding-bottom: 177%; height: 0; overflow: hidden;">
-                    <a href="<?php the_permalink(); ?>">
-                        <?php if ($v_id) : ?>
-                            <?php cd_render_youtube_thumbnail($v_id, array('alt'=>get_the_title(),'style'=>'position: absolute; top: 0; left: 0; width: 100%; height: 100%; object-fit: cover; opacity: 0.9;')); ?>
-                            <div style="position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); background: rgba(255, 0, 0, 0.9); color: #fff; width: 40px; height: 40px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 16px; padding-left: 2px;">▶</div>
-                        <?php endif; ?>
-                    </a>
+            ) );
+
+            if ( $shorts_q->have_posts() ) : while ( $shorts_q->have_posts() ) : $shorts_q->the_post();
+                $yt_url = get_post_meta( get_the_ID(), '_cd_youtube_url', true );
+                $v_id   = cd_extract_youtube_id( $yt_url );
+            ?>
+            <article class="cd-library-short-card">
+                <a href="<?php the_permalink(); ?>" class="cd-library-short-thumb" aria-label="<?php echo esc_attr( get_the_title() ); ?>">
+                    <?php if ( $v_id ) : ?>
+                        <?php cd_render_youtube_thumbnail( $v_id, array(
+                            'quality'          => 'hqdefault',
+                            'fallback_quality' => 'mqdefault',
+                            'alt'              => get_the_title(),
+                            'class'            => 'cd-library-thumb-img',
+                            'width'            => 480,
+                            'height'           => 270,
+                        ) ); ?>
+                    <?php else : ?>
+                        <span class="cd-library-thumb-placeholder"></span>
+                    <?php endif; ?>
+                    <span class="cd-library-play" aria-hidden="true">&#9654;</span>
+                </a>
+
+                <div class="cd-library-short-body">
+                    <h3><a href="<?php the_permalink(); ?>"><?php echo esc_html( wp_trim_words( get_the_title(), 9 ) ); ?></a></h3>
                 </div>
-                <div style="padding: 12px;">
-                    <a href="<?php the_permalink(); ?>" style="color: #fff; font-size: 13px; font-weight: bold; text-decoration: none; line-height: 1.4; display: block;"><?php echo wp_trim_words(get_the_title(), 7); ?></a>
-                </div>
-            </div>
-        <?php endwhile; wp_reset_postdata(); else: ?>
-            <p style="color: #666; grid-column: 1/-1;">No shorts found.</p>
-        <?php endif; ?>
+            </article>
+            <?php endwhile; wp_reset_postdata(); else : ?>
+                <div class="cd-video-empty">No shorts found.</div>
+            <?php endif; ?>
         </div>
-        
     </div>
 </main>
 
