@@ -4,7 +4,7 @@
  * Updates: SEO Taxonomy Slug changed to 'chess-in'
  */
 if (!defined('ABSPATH')) exit;
-define('CD_VERSION', '2.1.5');
+define('CD_VERSION', '2.1.6');
 define('CD_DIR', get_template_directory());
 define('CD_URI', get_template_directory_uri());
 
@@ -453,6 +453,10 @@ function cd_get_seo_meta() {
         'title'       => get_the_title() . $sep . $site,
         'description' => wp_trim_words(get_the_excerpt(), 25),
     );
+    if (cd_is_contact_page_request()) return array(
+        'title'       => 'Contact Us' . $sep . $site,
+        'description' => 'Contact Checkmate Daily for chess news tips, tournament updates, corrections, partnerships, and advertising enquiries.',
+    );
     if (is_page()) return array(
         'title'       => get_the_title() . $sep . $site,
         'description' => wp_trim_words(get_the_excerpt() ?: strip_tags(get_the_content()), 25),
@@ -591,6 +595,13 @@ function cd_get_breadcrumb_schema() {
 function cd_get_canonical_url() {
     $paged = max( 1, (int) get_query_var( 'paged' ) ?: (int) get_query_var( 'page' ) ?: 1 );
 
+    if ( cd_is_contact_page_request() ) {
+        if ( is_page() ) {
+            return get_permalink();
+        }
+
+        return home_url( '/contact/' );
+    }
     if ( is_singular() ) {
         return get_permalink();
     }
@@ -852,6 +863,113 @@ function cd_flush_performance_caches( $post_id, $post, $update ) {
 }
 add_action( 'save_post', 'cd_flush_performance_caches', 10, 3 );
 
+/* --- Contact page route and form handling --- */
+function cd_is_contact_page_request() {
+    if ( is_page( array( 'contact', 'contact-us' ) ) ) return true;
+    if ( is_admin() || ( function_exists( 'wp_doing_ajax' ) && wp_doing_ajax() ) ) return false;
+
+    $request_uri  = isset( $_SERVER['REQUEST_URI'] ) ? wp_unslash( $_SERVER['REQUEST_URI'] ) : '';
+    $request_path = trim( (string) wp_parse_url( $request_uri, PHP_URL_PATH ), '/' );
+    $home_path    = trim( (string) wp_parse_url( home_url( '/' ), PHP_URL_PATH ), '/' );
+
+    if ( $home_path && 0 === strpos( $request_path, $home_path . '/' ) ) {
+        $request_path = trim( substr( $request_path, strlen( $home_path ) + 1 ), '/' );
+    } elseif ( $home_path === $request_path ) {
+        $request_path = '';
+    }
+
+    return in_array( untrailingslashit( $request_path ), array( 'contact', 'contact-us' ), true );
+}
+
+function cd_load_contact_template( $template ) {
+    if ( ! cd_is_contact_page_request() ) return $template;
+
+    $contact_template = locate_template( 'page-contact.php' );
+    if ( ! $contact_template ) return $template;
+
+    if ( is_404() ) {
+        status_header( 200 );
+        nocache_headers();
+    }
+
+    return $contact_template;
+}
+add_filter( 'template_include', 'cd_load_contact_template' );
+
+function cd_get_public_contact_email() {
+    $email = sanitize_email( apply_filters( 'cd_public_contact_email', 'contact@checkmatedaily.com' ) );
+    return is_email( $email ) ? $email : 'contact@checkmatedaily.com';
+}
+
+function cd_get_contact_recipient_email() {
+    $recipient = get_option( 'admin_email' );
+    if ( ! is_email( $recipient ) ) {
+        $recipient = cd_get_public_contact_email();
+    }
+
+    $recipient = sanitize_email( apply_filters( 'cd_contact_recipient_email', $recipient ) );
+    return is_email( $recipient ) ? $recipient : cd_get_public_contact_email();
+}
+
+function cd_contact_redirect( $status ) {
+    $fallback = home_url( '/contact/' );
+    $redirect = wp_get_referer();
+
+    if ( ! $redirect ) {
+        $redirect = $fallback;
+    }
+
+    $redirect = remove_query_arg( 'contact-status', $redirect );
+    wp_safe_redirect( add_query_arg( 'contact-status', sanitize_key( $status ), $redirect ) );
+    exit;
+}
+
+function cd_handle_contact_form() {
+    if ( 'POST' !== ( $_SERVER['REQUEST_METHOD'] ?? '' ) ) {
+        cd_contact_redirect( 'invalid' );
+    }
+
+    $nonce = isset( $_POST['cd_contact_nonce'] ) ? sanitize_text_field( wp_unslash( $_POST['cd_contact_nonce'] ) ) : '';
+    if ( ! wp_verify_nonce( $nonce, 'cd_contact_form' ) ) {
+        cd_contact_redirect( 'invalid' );
+    }
+
+    $honeypot = isset( $_POST['contact_company'] ) ? trim( (string) wp_unslash( $_POST['contact_company'] ) ) : '';
+    if ( '' !== $honeypot ) {
+        cd_contact_redirect( 'sent' );
+    }
+
+    $name    = isset( $_POST['contact_name'] ) ? sanitize_text_field( wp_unslash( $_POST['contact_name'] ) ) : '';
+    $email   = isset( $_POST['contact_email'] ) ? sanitize_email( wp_unslash( $_POST['contact_email'] ) ) : '';
+    $subject = isset( $_POST['contact_subject'] ) ? sanitize_text_field( wp_unslash( $_POST['contact_subject'] ) ) : '';
+    $message = isset( $_POST['contact_message'] ) ? sanitize_textarea_field( wp_unslash( $_POST['contact_message'] ) ) : '';
+
+    if ( '' === $name || ! is_email( $email ) || '' === $message ) {
+        cd_contact_redirect( 'invalid' );
+    }
+
+    if ( '' === $subject ) {
+        $subject = 'Contact request';
+    }
+
+    $mail_subject = sprintf( '[Checkmate Daily] %s', $subject );
+    $mail_body    = sprintf(
+        "Name: %s\nEmail: %s\nSubject: %s\n\nMessage:\n%s",
+        $name,
+        $email,
+        $subject,
+        $message
+    );
+    $headers = array(
+        sprintf( 'Reply-To: %s <%s>', $name, $email ),
+    );
+
+    $sent = wp_mail( cd_get_contact_recipient_email(), $mail_subject, $mail_body, $headers );
+    cd_contact_redirect( $sent ? 'sent' : 'mail-error' );
+}
+add_action( 'admin_post_nopriv_cd_contact_form', 'cd_handle_contact_form' );
+add_action( 'admin_post_cd_contact_form', 'cd_handle_contact_form' );
+
 
 add_filter('document_title_parts', function($p) {
     if (defined('WPSEO_VERSION')) return $p;
@@ -913,6 +1031,10 @@ add_filter('body_class', function($c) {
     if (is_front_page())       $c[] = 'cd-home-page';
     if (is_category())         $c[] = 'cd-category-page';
     if (is_tax('chess_state')) $c[] = 'cd-state-page';
+    if (cd_is_contact_page_request()) {
+        $c[] = 'cd-contact-page';
+        $c   = array_diff( $c, array( 'error404' ) );
+    }
     return $c;
 });
 
