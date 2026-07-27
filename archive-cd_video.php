@@ -22,8 +22,7 @@ get_header();
 
         <div class="cd-video-library-grid">
             <?php if ( have_posts() ) : while ( have_posts() ) : the_post();
-                $yt_url    = get_post_meta( get_the_ID(), '_cd_youtube_url', true );
-                $v_id      = cd_extract_youtube_id( $yt_url );
+                $v_id      = cd_get_video_youtube_id( get_the_ID() );
                 $playlists = get_the_terms( get_the_ID(), 'video_playlist' );
                 $label     = ( $playlists && ! is_wp_error( $playlists ) ) ? $playlists[0]->name : 'Coverage';
             ?>
@@ -73,8 +72,7 @@ get_header();
             ) );
 
             if ( $shorts_q->have_posts() ) : while ( $shorts_q->have_posts() ) : $shorts_q->the_post();
-                $yt_url = get_post_meta( get_the_ID(), '_cd_youtube_url', true );
-                $v_id   = cd_extract_youtube_id( $yt_url );
+                $v_id = cd_get_video_youtube_id( get_the_ID() );
             ?>
             <article class="cd-library-short-card">
                 <a href="<?php the_permalink(); ?>" class="cd-library-short-thumb" aria-label="<?php echo esc_attr( get_the_title() ); ?>">

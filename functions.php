@@ -4,7 +4,7 @@
  * Updates: SEO Taxonomy Slug changed to 'chess-in'
  */
 if (!defined('ABSPATH')) exit;
-define('CD_VERSION', '2.1.7');
+define('CD_VERSION', '2.1.8');
 define('CD_DIR', get_template_directory());
 define('CD_URI', get_template_directory_uri());
 
@@ -285,6 +285,67 @@ function cd_extract_youtube_id( $url ) {
 
     preg_match( '%(?:youtube(?:-nocookie)?\.com/(?:shorts/|[^/]+/.+/|(?:v|e(?:mbed)?)/|.*[?&]v=)|youtu\.be/)([A-Za-z0-9_-]{11})%i', $url, $match );
     return $match[1] ?? '';
+}
+
+function cd_find_youtube_id_in_value( $value ) {
+    if ( is_array( $value ) || is_object( $value ) ) {
+        foreach ( (array) $value as $item ) {
+            $video_id = cd_find_youtube_id_in_value( $item );
+            if ( $video_id ) return $video_id;
+        }
+        return '';
+    }
+
+    $value = html_entity_decode( (string) $value );
+    if ( '' === trim( $value ) ) return '';
+
+    return cd_extract_youtube_id( $value );
+}
+
+function cd_get_video_youtube_id( $post_id ) {
+    $post_id = (int) $post_id;
+    if ( ! $post_id ) return '';
+
+    $sources = array(
+        get_post_meta( $post_id, '_cd_youtube_id', true ),
+        get_post_meta( $post_id, '_cd_youtube_url', true ),
+        get_post_field( 'post_content', $post_id ),
+        get_post_field( 'post_excerpt', $post_id ),
+    );
+
+    foreach ( $sources as $source ) {
+        $video_id = cd_find_youtube_id_in_value( $source );
+        if ( $video_id ) {
+            cd_store_video_youtube_id( $post_id, $video_id );
+            return $video_id;
+        }
+    }
+
+    $all_meta = get_post_meta( $post_id );
+    foreach ( $all_meta as $key => $values ) {
+        if ( false === stripos( $key, 'youtube' ) && false === stripos( $key, 'video' ) && false === stripos( $key, 'embed' ) && false === stripos( $key, 'oembed' ) ) {
+            continue;
+        }
+        $video_id = cd_find_youtube_id_in_value( $values );
+        if ( $video_id ) {
+            cd_store_video_youtube_id( $post_id, $video_id );
+            return $video_id;
+        }
+    }
+
+    return '';
+}
+
+function cd_store_video_youtube_id( $post_id, $video_id ) {
+    $video_id = cd_extract_youtube_id( $video_id );
+    if ( ! $video_id || 'cd_video' !== get_post_type( $post_id ) ) return;
+
+    if ( get_post_meta( $post_id, '_cd_youtube_id', true ) !== $video_id ) {
+        update_post_meta( $post_id, '_cd_youtube_id', $video_id );
+    }
+    if ( ! get_post_meta( $post_id, '_cd_youtube_url', true ) ) {
+        update_post_meta( $post_id, '_cd_youtube_url', 'https://www.youtube.com/watch?v=' . $video_id );
+    }
 }
 
 function cd_youtube_thumbnail_url( $video_id, $quality = 'hqdefault' ) {

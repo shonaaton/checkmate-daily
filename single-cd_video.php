@@ -8,10 +8,8 @@ get_header(); ?>
 <main id="cd-main" style="background: #0a0a0a; color: #fff; min-height: 100vh; display: block; width: 100%;">
     <?php while ( have_posts() ) : the_post(); 
         
-        $yt_url = get_post_meta(get_the_ID(), '_cd_youtube_url', true);
-        
         // Extract the exact 11-character video ID
-        $v_id = cd_extract_youtube_id($yt_url);
+        $v_id = cd_get_video_youtube_id(get_the_ID());
 
         // Check if tagged as "shorts"
         $is_short = false;

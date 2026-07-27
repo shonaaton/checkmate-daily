@@ -36,8 +36,7 @@ get_header();
             if ($video_q->have_posts()) : 
                 while ($video_q->have_posts()) : $video_q->the_post(); 
                 
-                $yt_url = get_post_meta(get_the_ID(), '_cd_youtube_url', true);
-                $v_id = cd_extract_youtube_id($yt_url);
+                $v_id = cd_get_video_youtube_id(get_the_ID());
             ?>
                 <div class="cd-news-card">
                     <div class="cd-news-card-img" style="position: relative;">
