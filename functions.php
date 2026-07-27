@@ -4,7 +4,7 @@
  * Updates: SEO Taxonomy Slug changed to 'chess-in'
  */
 if (!defined('ABSPATH')) exit;
-define('CD_VERSION', '2.1.2');
+define('CD_VERSION', '2.1.3');
 define('CD_DIR', get_template_directory());
 define('CD_URI', get_template_directory_uri());
 
@@ -143,7 +143,7 @@ function cd_fallback_missing_intermediate_image( $downsize, $attachment_id, $siz
 }
 add_filter( 'image_downsize', 'cd_fallback_missing_intermediate_image', 10, 3 );
 
-function cd_get_post_image_url( $post_id, $size = 'full' ) {
+function cd_get_featured_image_url( $post_id, $size = 'full' ) {
     $thumb_id = get_post_thumbnail_id( $post_id );
     if ( ! $thumb_id ) return '';
 
@@ -155,9 +155,100 @@ function cd_get_post_image_url( $post_id, $size = 'full' ) {
     return $url ? cd_normalize_upload_url( $url ) : '';
 }
 
+function cd_get_attached_image_url( $post_id, $size = 'full' ) {
+    $attachments = get_children( array(
+        'post_parent'    => $post_id,
+        'post_type'      => 'attachment',
+        'post_mime_type' => 'image',
+        'post_status'    => 'inherit',
+        'numberposts'    => 1,
+        'orderby'        => 'menu_order ID',
+        'order'          => 'ASC',
+    ) );
+
+    if ( ! $attachments ) return '';
+
+    $attachment = reset( $attachments );
+    $url        = wp_get_attachment_image_url( $attachment->ID, $size );
+
+    if ( ! $url && 'full' !== $size ) {
+        $url = wp_get_attachment_image_url( $attachment->ID, 'full' );
+    }
+
+    return $url ? cd_normalize_upload_url( $url ) : '';
+}
+
+function cd_make_image_url_absolute( $url ) {
+    $url = trim( html_entity_decode( (string) $url ) );
+    if ( '' === $url || 0 === strpos( $url, 'data:' ) ) return '';
+
+    if ( 0 === strpos( $url, '//' ) ) {
+        $scheme = is_ssl() ? 'https:' : 'http:';
+        return $scheme . $url;
+    }
+
+    if ( preg_match( '#^https?://#i', $url ) ) {
+        return cd_normalize_upload_url( $url );
+    }
+
+    if ( 0 === strpos( $url, '/' ) ) {
+        return home_url( $url );
+    }
+
+    return '';
+}
+
+function cd_get_first_content_image_url( $post_id ) {
+    $content = get_post_field( 'post_content', $post_id );
+    if ( ! $content ) return '';
+
+    if ( preg_match_all( '/<img[^>]+(?:data-lazy-src|data-src|src)=["\']([^"\']+)["\']/i', $content, $matches ) ) {
+        foreach ( $matches[1] as $raw_url ) {
+            $url = cd_make_image_url_absolute( $raw_url );
+            if ( $url ) return $url;
+        }
+    }
+
+    return '';
+}
+
+function cd_get_post_image_url( $post_id, $size = 'full' ) {
+    $candidates = array(
+        cd_get_featured_image_url( $post_id, $size ),
+        cd_get_attached_image_url( $post_id, $size ),
+        cd_get_first_content_image_url( $post_id ),
+    );
+
+    if ( 'full' !== $size ) {
+        $candidates[] = cd_get_featured_image_url( $post_id, 'full' );
+        $candidates[] = cd_get_attached_image_url( $post_id, 'full' );
+    }
+
+    foreach ( $candidates as $url ) {
+        if ( $url ) return cd_normalize_upload_url( $url );
+    }
+
+    return '';
+}
+
+function cd_get_post_image_fallback_url( $post_id, $primary = '' ) {
+    $candidates = array(
+        cd_get_first_content_image_url( $post_id ),
+        cd_get_attached_image_url( $post_id, 'full' ),
+        cd_get_featured_image_url( $post_id, 'full' ),
+    );
+
+    foreach ( $candidates as $url ) {
+        $url = $url ? cd_normalize_upload_url( $url ) : '';
+        if ( $url && $url !== $primary ) return $url;
+    }
+
+    return '';
+}
+
 function cd_render_post_image( $post_id, $size = 'full', $args = array() ) {
     $primary  = cd_get_post_image_url( $post_id, $size );
-    $fallback = cd_get_post_image_url( $post_id, 'full' );
+    $fallback = cd_get_post_image_fallback_url( $post_id, $primary );
 
     if ( ! $primary ) $primary = $fallback;
     if ( ! $primary ) return false;
