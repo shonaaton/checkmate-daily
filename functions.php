@@ -4,7 +4,7 @@
  * Updates: SEO Taxonomy Slug changed to 'chess-in'
  */
 if (!defined('ABSPATH')) exit;
-define('CD_VERSION', '2.1.1');
+define('CD_VERSION', '2.1.2');
 define('CD_DIR', get_template_directory());
 define('CD_URI', get_template_directory_uri());
 
@@ -30,7 +30,6 @@ function cd_enqueue_assets() {
         'https://fonts.googleapis.com/css2?family=Playfair+Display:wght@400;700;900&family=Source+Sans+3:wght@400;600;700&display=swap',
         array(), null);
     wp_enqueue_style('cd-style', get_stylesheet_uri(), array(), CD_VERSION);
-    wp_enqueue_style('cd-additional', CD_URI . '/assets/css/additional.css', array('cd-style'), CD_VERSION);
     wp_enqueue_script('cd-main', CD_URI . '/assets/js/main.js', array('jquery'), CD_VERSION, true);
     if (is_singular() && comments_open()) wp_enqueue_script('comment-reply');
     wp_localize_script('cd-main', 'cdAjax', array(
