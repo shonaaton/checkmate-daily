@@ -41,19 +41,6 @@ get_header();
             <div class="cd-contact-notice error" role="alert">The message could not be sent. Please email us directly instead.</div>
           <?php endif; ?>
 
-          <?php if ( $has_page ) : ?>
-            <?php
-            ob_start();
-            the_content();
-            $page_content = trim( ob_get_clean() );
-            ?>
-            <?php if ( $page_content ) : ?>
-              <div class="cd-contact-intro">
-                <?php echo $page_content; ?>
-              </div>
-            <?php endif; ?>
-          <?php endif; ?>
-
           <form class="cd-contact-form" method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>">
             <input type="hidden" name="action" value="cd_contact_form">
             <?php wp_nonce_field( 'cd_contact_form', 'cd_contact_nonce' ); ?>

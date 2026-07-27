@@ -725,17 +725,6 @@ h1,h2,h3,h4,h5,h6 { font-family: var(--cd-font-serif); font-weight: 700; line-he
   margin-bottom: 18px;
   padding-bottom: 10px;
 }
-.cd-contact-intro {
-  border-bottom: 1px solid var(--cd-gray-mid);
-  color: #333333;
-  font-size: 15px;
-  line-height: 1.75;
-  margin-bottom: 20px;
-  padding-bottom: 4px;
-}
-.cd-contact-intro p {
-  margin-bottom: 16px;
-}
 .cd-contact-form {
   display: grid;
   gap: 14px;
