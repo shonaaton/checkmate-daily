@@ -4,7 +4,7 @@ Theme URI: https://checkmatedaily.com
 Author: Checkmate Daily
 Author URI: https://checkmatedaily.com
 Description: A custom chess news magazine theme for Checkmate Daily — featuring breaking news ticker, magazine-style homepage, auto-populated category pages, Chess News India SEO hub with state sub-pages, and full Blitz/Rapid/Classical/Chess960 format pages.
-Version: 1.1.1
+Version: 1.1.2
 License: GNU General Public License v2 or later
 Text Domain: checkmate-daily
 Tags: news, magazine, chess, custom-colors, featured-images, custom-menu, custom-logo, threaded-comments, translation-ready
@@ -2359,4 +2359,131 @@ iframe[src*="youtu.be"] {
     font-weight: 700 !important;
     display: inline-block !important;
     transform: translateY(-50%) !important; /* Pulls it up to sit perfectly on the dashed line */
+}
+
+/* =====================================================
+   19. HOMEPAGE TV SECTION FINAL OVERRIDES
+===================================================== */
+.cd-tv-section {
+    background: #090909 !important;
+    border-radius: 8px !important;
+    padding: 22px 24px 28px !important;
+    margin: 24px 0 42px !important;
+    box-shadow: 0 10px 26px rgba(0,0,0,0.18) !important;
+}
+.cd-tv-section .cd-section-head {
+    border-bottom: 2px solid #ff1e1e !important;
+    margin: 0 0 22px !important;
+    padding-bottom: 10px !important;
+}
+.cd-tv-section .cd-section-head h2 {
+    color: #ffffff !important;
+    font-size: 18px !important;
+    letter-spacing: 0.6px !important;
+}
+.cd-tv-section .cd-section-head .view-all,
+.cd-tv-section .cd-tv-section-head .view-lib {
+    color: #8fd3ff !important;
+    font-size: 12px !important;
+    font-weight: 700 !important;
+}
+.cd-tv-section .cd-section-head .view-all:hover,
+.cd-tv-section .cd-tv-section-head .view-lib:hover {
+    color: #ffffff !important;
+}
+.cd-tv-section-head {
+    align-items: center !important;
+    margin: 24px 0 14px !important;
+}
+.cd-tv-section-head h3 {
+    color: #ffffff !important;
+    font-size: 18px !important;
+    line-height: 1.2 !important;
+    text-shadow: 0 1px 2px rgba(0,0,0,0.45) !important;
+}
+.cd-video-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+    gap: 18px !important;
+    margin-bottom: 34px !important;
+}
+.cd-video-card,
+.cd-short-card {
+    border: 1px solid rgba(255,255,255,0.1) !important;
+    background: #000000 !important;
+    box-shadow: 0 6px 18px rgba(0,0,0,0.55) !important;
+}
+.cd-tv-section .cd-video-card img,
+.cd-tv-section .cd-short-card img {
+    border-bottom: 0 !important;
+}
+.cd-video-card .cd-play-btn,
+.cd-short-card .cd-play-btn {
+    background: #ff1212 !important;
+    box-shadow: 0 4px 14px rgba(0,0,0,0.55) !important;
+}
+.cd-video-card .cd-video-title,
+.cd-short-card .cd-video-title {
+    color: #ffffff !important;
+    font-family: var(--cd-font-sans) !important;
+    font-weight: 800 !important;
+    text-shadow: 0 2px 5px rgba(0,0,0,0.9) !important;
+    overflow-wrap: normal !important;
+    word-wrap: normal !important;
+}
+.cd-video-card .cd-video-title {
+    font-size: 14px !important;
+    bottom: 13px !important;
+}
+.cd-shorts-grid {
+    grid-template-columns: repeat(4, minmax(0, 1fr)) !important;
+    gap: 16px !important;
+    margin-bottom: 0 !important;
+}
+.cd-short-card {
+    aspect-ratio: 9 / 16 !important;
+}
+.cd-tv-section .cd-short-card img {
+    width: 100% !important;
+    height: 100% !important;
+    max-width: none !important;
+    aspect-ratio: auto !important;
+    object-fit: cover !important;
+    object-position: center top !important;
+    display: block !important;
+    margin: 0 !important;
+    transform: none !important;
+}
+.cd-short-card .cd-video-gradient {
+    height: 82% !important;
+    background: linear-gradient(to top, rgba(0,0,0,1) 0%, rgba(0,0,0,0.82) 34%, rgba(0,0,0,0.22) 76%, rgba(0,0,0,0) 100%) !important;
+}
+.cd-short-card .cd-play-btn {
+    top: 43% !important;
+    width: 42px !important;
+    height: 42px !important;
+}
+.cd-short-card .cd-video-title {
+    bottom: 14px !important;
+    left: 12px !important;
+    right: 12px !important;
+    font-size: 12px !important;
+    line-height: 1.35 !important;
+}
+@media (max-width: 900px) {
+    .cd-tv-section {
+        padding: 18px 16px 22px !important;
+    }
+    .cd-video-grid,
+    .cd-shorts-grid {
+        grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+    }
+}
+@media (max-width: 520px) {
+    .cd-tv-section {
+        padding: 16px 12px 20px !important;
+    }
+    .cd-video-grid,
+    .cd-shorts-grid {
+        grid-template-columns: 1fr !important;
+    }
 }
