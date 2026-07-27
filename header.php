@@ -3,6 +3,15 @@
 <head>
   <meta charset="<?php bloginfo('charset'); ?>">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <script>
+    (function(){
+      try {
+        var saved = localStorage.getItem('cdThemeMode');
+        var dark = saved ? saved === 'dark' : window.matchMedia('(prefers-color-scheme: dark)').matches;
+        document.documentElement.classList.toggle('cd-theme-dark', dark);
+      } catch (e) {}
+    })();
+  </script>
   <?php wp_head(); ?>
 </head>
 <body <?php body_class(); ?>>
@@ -58,6 +67,15 @@
       </div>
 
       <!-- Mobile search icon — shown only on mobile via CSS -->
+      <button id="cd-theme-toggle"
+              class="cd-theme-toggle"
+              type="button"
+              aria-label="Switch to dark mode"
+              aria-pressed="false"
+              title="Toggle dark mode">
+        <span class="cd-theme-toggle-icon" aria-hidden="true"></span>
+      </button>
+
       <button id="cd-mob-search-btn"
               aria-label="Open search"
               aria-expanded="false"

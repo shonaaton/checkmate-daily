@@ -4,7 +4,7 @@ Theme URI: https://checkmatedaily.com
 Author: Checkmate Daily
 Author URI: https://checkmatedaily.com
 Description: A custom chess news magazine theme for Checkmate Daily — featuring breaking news ticker, magazine-style homepage, auto-populated category pages, Chess News India SEO hub with state sub-pages, and full Blitz/Rapid/Classical/Chess960 format pages.
-Version: 1.1.4
+Version: 1.1.5
 License: GNU General Public License v2 or later
 Text Domain: checkmate-daily
 Tags: news, magazine, chess, custom-colors, featured-images, custom-menu, custom-logo, threaded-comments, translation-ready
@@ -2918,5 +2918,184 @@ iframe[src*="youtu.be"] {
     .cd-video-library-grid,
     .cd-library-shorts-grid {
         grid-template-columns: 1fr !important;
+    }
+}
+
+/* =====================================================
+   21. NATIVE LIGHT / DARK MODE
+===================================================== */
+.darkmode-toggle,
+.darkmode-layer,
+.darkmode-background {
+    display: none !important;
+}
+.cd-theme-toggle {
+    width: 34px !important;
+    height: 34px !important;
+    border-radius: 50% !important;
+    border: 1.5px solid rgba(255,255,255,0.28) !important;
+    background: rgba(255,255,255,0.08) !important;
+    color: #ffffff !important;
+    display: inline-flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+    cursor: pointer !important;
+    flex-shrink: 0 !important;
+    margin-left: 10px !important;
+    transition: background 0.15s ease, border-color 0.15s ease, transform 0.15s ease !important;
+}
+.cd-theme-toggle:hover {
+    background: rgba(255,255,255,0.16) !important;
+    border-color: var(--cd-blue) !important;
+    transform: translateY(-1px) !important;
+}
+.cd-theme-toggle:focus-visible {
+    outline: 3px solid var(--cd-blue) !important;
+    outline-offset: 3px !important;
+}
+.cd-theme-toggle-icon {
+    position: relative !important;
+    width: 16px !important;
+    height: 16px !important;
+    border-radius: 50% !important;
+    background: currentColor !important;
+    box-shadow: 0 0 0 2px currentColor inset !important;
+}
+.cd-theme-toggle-icon::after {
+    content: "" !important;
+    position: absolute !important;
+    top: -2px !important;
+    right: -5px !important;
+    width: 16px !important;
+    height: 16px !important;
+    border-radius: 50% !important;
+    background: var(--cd-black) !important;
+    opacity: 0 !important;
+    transition: opacity 0.15s ease !important;
+}
+.cd-theme-dark .cd-theme-toggle-icon {
+    background: transparent !important;
+}
+.cd-theme-dark .cd-theme-toggle-icon::after {
+    opacity: 1 !important;
+}
+.cd-theme-dark {
+    color-scheme: dark !important;
+    --cd-black: #f4f7fa;
+    --cd-white: #101418;
+    --cd-gray-light: #0d1116;
+    --cd-gray-mid: #27313a;
+    --cd-gray-text: #c3ccd5;
+    --cd-gray-muted: #8995a0;
+    --cd-blue-deeper: #123c56;
+    --cd-shadow: 0 4px 16px rgba(0,0,0,0.35);
+}
+.cd-theme-dark body,
+.cd-theme-dark #cd-main,
+.cd-theme-dark #cd-main .container,
+.cd-theme-dark #cd-main .cd-content-wrap,
+.cd-theme-dark #cd-main .cd-main-col {
+    background: #0d1116 !important;
+    color: #d9e2ea !important;
+}
+.cd-theme-dark h1,
+.cd-theme-dark h2,
+.cd-theme-dark h3,
+.cd-theme-dark h4,
+.cd-theme-dark h5,
+.cd-theme-dark h6,
+.cd-theme-dark .cd-news-card-title a,
+.cd-theme-dark .cd-thumb-title a,
+.cd-theme-dark .cd-sb-title a,
+.cd-theme-dark .cd-library-video-body h2 a,
+.cd-theme-dark .cd-library-short-body h3 a {
+    color: #f4f7fa !important;
+}
+.cd-theme-dark p,
+.cd-theme-dark .cd-news-card-excerpt,
+.cd-theme-dark .cd-single-content,
+.cd-theme-dark .cd-author-bio {
+    color: #c3ccd5 !important;
+}
+.cd-theme-dark .cd-news-card,
+.cd-theme-dark .cd-thumb-card,
+.cd-theme-dark .cd-sidebar-box,
+.cd-theme-dark .cd-newsletter-box,
+.cd-theme-dark .cd-library-video-card,
+.cd-theme-dark .cd-library-short-card,
+.cd-theme-dark .cd-tv-section,
+.cd-theme-dark .cd-affiliate-link,
+.cd-theme-dark .cd-single,
+.cd-theme-dark .cd-page-content {
+    background: #151b22 !important;
+    border-color: #27313a !important;
+    color: #d9e2ea !important;
+}
+.cd-theme-dark .cd-news-card-body,
+.cd-theme-dark .cd-thumb-body,
+.cd-theme-dark .cd-library-video-body,
+.cd-theme-dark .cd-library-short-body,
+.cd-theme-dark .cd-short-card .cd-video-title {
+    background: #151b22 !important;
+}
+.cd-theme-dark .cd-section-head,
+.cd-theme-dark .cd-sidebar-head,
+.cd-theme-dark .cd-tv-section-head {
+    border-color: var(--cd-blue) !important;
+}
+.cd-theme-dark .cd-section-head h2,
+.cd-theme-dark .cd-sidebar-head,
+.cd-theme-dark .cd-tv-section-head h3,
+.cd-theme-dark .cd-video-library-head h2 {
+    color: #f4f7fa !important;
+}
+.cd-theme-dark .cd-newsletter-box {
+    background: #168ccf !important;
+}
+.cd-theme-dark .cd-newsletter-box h3,
+.cd-theme-dark .cd-newsletter-box p {
+    color: #ffffff !important;
+}
+.cd-theme-dark input,
+.cd-theme-dark textarea,
+.cd-theme-dark select {
+    background: #0f141a !important;
+    border-color: #34414c !important;
+    color: #f4f7fa !important;
+}
+.cd-theme-dark input::placeholder,
+.cd-theme-dark textarea::placeholder {
+    color: #7f8a95 !important;
+}
+.cd-theme-dark .cd-header-search input {
+    background: rgba(255,255,255,0.1) !important;
+    color: #ffffff !important;
+}
+.cd-theme-dark .cd-footer-col,
+.cd-theme-dark .cd-footer-desc,
+.cd-theme-dark .cd-footer-bottom {
+    color: #c3ccd5 !important;
+}
+.cd-theme-dark .cd-affiliate-link img,
+.cd-theme-dark img,
+.cd-theme-dark picture,
+.cd-theme-dark video,
+.cd-theme-dark iframe,
+.cd-theme-dark embed,
+.cd-theme-dark .cd-logo .custom-logo {
+    filter: none !important;
+}
+.cd-theme-dark .cd-logo .custom-logo {
+    background: transparent !important;
+}
+.cd-theme-dark .cd-video-library-hero,
+.cd-theme-dark .cd-format-hero {
+    background: #111111 !important;
+}
+@media (max-width: 768px) {
+    .cd-theme-toggle {
+        width: 34px !important;
+        height: 34px !important;
+        margin-left: 8px !important;
     }
 }

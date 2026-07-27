@@ -6,6 +6,35 @@
 'use strict';
 
 /* =====================================================
+   THEME MODE TOGGLE
+===================================================== */
+(function initThemeMode(){
+  var root = document.documentElement;
+  var btn = document.getElementById('cd-theme-toggle');
+  if (!btn) return;
+
+  function isDark(){
+    return root.classList.contains('cd-theme-dark');
+  }
+
+  function updateButton(){
+    var dark = isDark();
+    btn.setAttribute('aria-pressed', String(dark));
+    btn.setAttribute('aria-label', dark ? 'Switch to light mode' : 'Switch to dark mode');
+    btn.setAttribute('title', dark ? 'Switch to light mode' : 'Switch to dark mode');
+  }
+
+  btn.addEventListener('click', function(){
+    var nextDark = !isDark();
+    root.classList.toggle('cd-theme-dark', nextDark);
+    try { localStorage.setItem('cdThemeMode', nextDark ? 'dark' : 'light'); } catch(e) {}
+    updateButton();
+  });
+
+  updateButton();
+})();
+
+/* =====================================================
    MOBILE NAV TOGGLE
 ===================================================== */
 $('#cd-mob-toggle').on('click', function(){
