@@ -4,7 +4,7 @@
  * Updates: SEO Taxonomy Slug changed to 'chess-in'
  */
 if (!defined('ABSPATH')) exit;
-define('CD_VERSION', '2.1.11');
+define('CD_VERSION', '2.1.12');
 define('CD_DIR', get_template_directory());
 define('CD_URI', get_template_directory_uri());
 
@@ -13,6 +13,7 @@ function cd_theme_setup() {
     load_theme_textdomain('checkmate-daily', CD_DIR . '/languages');
     add_theme_support('title-tag');
     add_theme_support('post-thumbnails');
+    add_post_type_support('post', 'thumbnail');
     add_theme_support('custom-logo', array('height'=>48,'width'=>200,'flex-height'=>true,'flex-width'=>true));
     add_theme_support('html5', array('search-form','comment-form','comment-list','gallery','caption'));
     add_theme_support('automatic-feed-links');
@@ -245,6 +246,7 @@ function cd_get_featured_image_debug_data( $post_id ) {
         'post_type'                    => (string) $post_type,
         'post_type_supports_thumbnail' => $post_type ? cd_debug_yes_no( post_type_supports( $post_type, 'thumbnail' ) ) : 'unknown post type',
         'raw_thumbnail_meta'           => (string) get_post_meta( $post_id, '_thumbnail_id', true ),
+        'last_featured_save_attempt'   => (string) get_post_meta( $post_id, '_cd_featured_image_last_save', true ),
         'get_post_thumbnail_id'        => $thumb_id,
         'attachment_exists'            => cd_debug_yes_no( (bool) $attachment ),
         'featured_cd_hero_url'         => cd_get_featured_image_url( $post_id, 'cd-hero' ),
@@ -339,6 +341,77 @@ function cd_render_editor_js_error_debugger() {
     <?php
 }
 add_action( 'admin_footer', 'cd_render_editor_js_error_debugger' );
+
+function cd_is_valid_image_attachment( $attachment_id ) {
+    $attachment_id = (int) $attachment_id;
+    if ( $attachment_id <= 0 ) return false;
+
+    $attachment = get_post( $attachment_id );
+    return $attachment
+        && 'attachment' === $attachment->post_type
+        && 0 === strpos( (string) $attachment->post_mime_type, 'image/' );
+}
+
+function cd_apply_featured_image_value( $post_id, $attachment_id, $source = 'unknown' ) {
+    $post_id       = (int) $post_id;
+    $attachment_id = (int) $attachment_id;
+
+    if ( $post_id <= 0 || ! current_user_can( 'edit_post', $post_id ) ) {
+        return false;
+    }
+
+    if ( $attachment_id <= 0 ) {
+        delete_post_thumbnail( $post_id );
+        update_post_meta( $post_id, '_cd_featured_image_last_save', wp_json_encode( array(
+            'source'        => $source,
+            'action'        => 'deleted',
+            'attachment_id' => $attachment_id,
+            'time'          => current_time( 'mysql' ),
+        ) ) );
+        return true;
+    }
+
+    if ( ! cd_is_valid_image_attachment( $attachment_id ) ) {
+        update_post_meta( $post_id, '_cd_featured_image_last_save', wp_json_encode( array(
+            'source'        => $source,
+            'action'        => 'rejected_invalid_attachment',
+            'attachment_id' => $attachment_id,
+            'time'          => current_time( 'mysql' ),
+        ) ) );
+        return false;
+    }
+
+    set_post_thumbnail( $post_id, $attachment_id );
+    clean_post_cache( $post_id );
+
+    update_post_meta( $post_id, '_cd_featured_image_last_save', wp_json_encode( array(
+        'source'        => $source,
+        'action'        => 'set',
+        'attachment_id' => $attachment_id,
+        'saved_meta'    => (int) get_post_meta( $post_id, '_thumbnail_id', true ),
+        'time'          => current_time( 'mysql' ),
+    ) ) );
+
+    return true;
+}
+
+function cd_force_rest_featured_media_save( $post, $request, $creating ) {
+    if ( ! $post instanceof WP_Post || 'post' !== $post->post_type ) return;
+    if ( ! $request instanceof WP_REST_Request ) return;
+    if ( ! $request->offsetExists( 'featured_media' ) ) return;
+
+    cd_apply_featured_image_value( $post->ID, (int) $request->get_param( 'featured_media' ), 'rest_after_insert_post' );
+}
+add_action( 'rest_after_insert_post', 'cd_force_rest_featured_media_save', 100, 3 );
+
+function cd_force_classic_featured_image_save( $post_id, $post, $update ) {
+    if ( ! $post instanceof WP_Post || 'post' !== $post->post_type ) return;
+    if ( wp_is_post_autosave( $post_id ) || wp_is_post_revision( $post_id ) ) return;
+    if ( ! isset( $_POST['_thumbnail_id'] ) ) return;
+
+    cd_apply_featured_image_value( $post_id, (int) wp_unslash( $_POST['_thumbnail_id'] ), 'save_post_post' );
+}
+add_action( 'save_post_post', 'cd_force_classic_featured_image_save', 100, 3 );
 
 function cd_is_frontend_debug_request() {
     return ! is_admin()
