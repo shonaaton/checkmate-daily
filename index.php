@@ -142,9 +142,85 @@ $paged = ( get_query_var( 'paged' ) ) ? get_query_var( 'paged' ) : ( get_query_v
 
     <?php
     /* ==========================================================
-       CHECKMATE DAILY TV (CINEMATIC FULL-BLEED GRID)
+       SECTION REPORTS (ONLY SHOW ON PAGE 1)
        ========================================================== */
     if ( $paged == 1 ) :
+      $format_slugs = array( 'classical-rating', 'rapid-rating', 'blitz-rating', 'chess960' );
+      $format_terms = array();
+
+      foreach ( $format_slugs as $format_slug ) {
+        $format_term = get_category_by_slug( $format_slug );
+        if ( $format_term && ! is_wp_error( $format_term ) && (int) $format_term->count > 0 ) {
+          $format_terms[] = $format_term;
+        }
+      }
+
+      $country_terms = get_terms( array(
+        'taxonomy'   => 'chess_country',
+        'hide_empty' => true,
+        'orderby'    => 'count',
+        'order'      => 'DESC',
+        'number'     => 4,
+      ) );
+
+      if ( is_wp_error( $country_terms ) ) {
+        $country_terms = array();
+      }
+
+      if ( $format_terms || $country_terms ) :
+    ?>
+    <div class="cd-report-section">
+      <div class="cd-section-head">
+        <h2>Section Reports</h2>
+        <a href="<?php echo esc_url( home_url( '/news/' ) ); ?>" class="view-all">View All</a>
+      </div>
+
+      <div class="cd-report-columns">
+        <?php if ( $format_terms ) : ?>
+        <div class="cd-report-group">
+          <div class="cd-report-group-head">
+            <h3>By Format</h3>
+          </div>
+          <div class="cd-report-card-grid">
+            <?php foreach ( $format_terms as $format_term ) : ?>
+              <a href="<?php echo esc_url( get_category_link( $format_term->term_id ) ); ?>" class="cd-report-card">
+                <span class="cd-report-card-name"><?php echo esc_html( $format_term->name ); ?></span>
+                <span class="cd-report-card-count"><?php echo number_format_i18n( $format_term->count ); ?> articles</span>
+              </a>
+            <?php endforeach; ?>
+          </div>
+        </div>
+        <?php endif; ?>
+
+        <?php if ( $country_terms ) : ?>
+        <div class="cd-report-group">
+          <div class="cd-report-group-head">
+            <h3>By Country</h3>
+            <a href="<?php echo esc_url( home_url( '/world/' ) ); ?>">More</a>
+          </div>
+          <div class="cd-report-card-grid">
+            <?php foreach ( $country_terms as $country_term ) : ?>
+              <a href="<?php echo esc_url( get_term_link( $country_term ) ); ?>" class="cd-report-card">
+                <span class="cd-report-card-name"><?php echo esc_html( $country_term->name ); ?></span>
+                <span class="cd-report-card-count"><?php echo number_format_i18n( $country_term->count ); ?> articles</span>
+              </a>
+            <?php endforeach; ?>
+          </div>
+        </div>
+        <?php endif; ?>
+      </div>
+    </div>
+    <?php
+      endif;
+    endif; // End Page 1 reports
+    ?>
+
+
+    <?php
+    /* ==========================================================
+       CHECKMATE DAILY TV (DISABLED)
+       ========================================================== */
+    if ( false && $paged == 1 ) :
     ?>
     <div class="cd-tv-section">
 
