@@ -4,7 +4,7 @@
  * Updates: SEO Taxonomy Slug changed to 'chess-in'
  */
 if (!defined('ABSPATH')) exit;
-define('CD_VERSION', '2.1.16');
+define('CD_VERSION', '2.1.17');
 define('CD_DIR', get_template_directory());
 define('CD_URI', get_template_directory_uri());
 
@@ -192,6 +192,82 @@ function cd_record_location_taxonomy_create_attempt( $response, $handler, $reque
     return $response;
 }
 add_filter( 'rest_request_after_callbacks', 'cd_record_location_taxonomy_create_attempt', 100, 3 );
+
+function cd_get_location_term_editor_data( $term ) {
+    $link = get_term_link( $term );
+
+    return array(
+        'id'          => (int) $term->term_id,
+        'count'       => (int) $term->count,
+        'description' => (string) $term->description,
+        'link'        => is_wp_error( $link ) ? '' : (string) $link,
+        'name'        => (string) $term->name,
+        'slug'        => (string) $term->slug,
+        'taxonomy'    => (string) $term->taxonomy,
+        'parent'      => (int) $term->parent,
+        'meta'        => array(),
+    );
+}
+
+/* Gutenberg fallback when another plugin breaks the native term-create request. */
+function cd_ajax_create_location_term() {
+    check_ajax_referer( 'cd_location_term_guard', 'nonce' );
+
+    $taxonomy = isset( $_POST['taxonomy'] ) ? sanitize_key( wp_unslash( $_POST['taxonomy'] ) ) : '';
+    $name     = isset( $_POST['name'] ) ? sanitize_text_field( wp_unslash( $_POST['name'] ) ) : '';
+    $parent   = isset( $_POST['parent'] ) ? (int) wp_unslash( $_POST['parent'] ) : 0;
+
+    if ( ! in_array( $taxonomy, array( 'chess_country', 'chess_state' ), true ) || ! taxonomy_exists( $taxonomy ) ) {
+        wp_send_json_error( array( 'code' => 'invalid_taxonomy', 'message' => 'Invalid location taxonomy.' ), 400 );
+    }
+
+    $tax = get_taxonomy( $taxonomy );
+    if ( ! $tax || ! current_user_can( $tax->cap->manage_terms ) ) {
+        wp_send_json_error( array( 'code' => 'forbidden', 'message' => 'You are not allowed to add locations.' ), 403 );
+    }
+
+    if ( '' === trim( $name ) ) {
+        wp_send_json_error( array( 'code' => 'empty_term_name', 'message' => 'Enter a country or state name.' ), 400 );
+    }
+
+    if ( $parent && ! term_exists( $parent, $taxonomy ) ) {
+        wp_send_json_error( array( 'code' => 'invalid_parent', 'message' => 'The selected parent does not exist.' ), 400 );
+    }
+
+    $created = wp_insert_term( $name, $taxonomy, array( 'parent' => $parent ) );
+    if ( is_wp_error( $created ) ) {
+        if ( 'term_exists' !== $created->get_error_code() ) {
+            wp_send_json_error( array(
+                'code'    => $created->get_error_code(),
+                'message' => $created->get_error_message(),
+            ), 400 );
+        }
+
+        $term_id = (int) $created->get_error_data();
+    } else {
+        $term_id = (int) $created['term_id'];
+    }
+
+    $term = get_term( $term_id, $taxonomy );
+    if ( ! $term || is_wp_error( $term ) ) {
+        wp_send_json_error( array( 'code' => 'term_lookup_failed', 'message' => 'The location could not be loaded after saving.' ), 500 );
+    }
+
+    update_user_meta( get_current_user_id(), '_cd_last_location_term_create', wp_json_encode( array(
+        'time'           => current_time( 'mysql' ),
+        'source'         => 'editor_ajax_fallback',
+        'route'          => 'admin-ajax.php',
+        'requested_name' => $name,
+        'parent'         => $parent,
+        'status'         => 201,
+        'response_code'  => '',
+        'response_name'  => $term->name,
+        'response_id'    => (int) $term->term_id,
+    ) ) );
+
+    wp_send_json_success( array( 'term' => cd_get_location_term_editor_data( $term ) ), 201 );
+}
+add_action( 'wp_ajax_cd_create_location_term', 'cd_ajax_create_location_term' );
 
 function cd_register_taxonomies() {
     register_taxonomy(
@@ -600,8 +676,9 @@ function cd_enqueue_featured_image_editor_guard() {
     if ( ! wp_script_is( 'wp-edit-post', 'registered' ) ) return;
 
     $config = array(
-        'ajaxurl' => admin_url( 'admin-ajax.php' ),
-        'nonce'   => wp_create_nonce( 'cd_featured_image_guard' ),
+        'ajaxurl'       => admin_url( 'admin-ajax.php' ),
+        'nonce'         => wp_create_nonce( 'cd_featured_image_guard' ),
+        'locationNonce' => wp_create_nonce( 'cd_location_term_guard' ),
     );
 
     $script = 'window.cdFeaturedImageGuard=' . wp_json_encode( $config ) . ';
@@ -672,6 +749,46 @@ function cd_enqueue_featured_image_editor_guard() {
             scheduleSend("after_save");
         }
         wasSaving = isSaving;
+    });
+}(window.wp, window.cdFeaturedImageGuard));
+(function(wp, config){
+    if (!wp || !wp.apiFetch || !wp.apiFetch.use || !window.fetch || !config || !config.locationNonce) return;
+
+    function getLocationTaxonomy(options) {
+        if (!options || String(options.method || "GET").toUpperCase() !== "POST") return "";
+        var route = String(options.path || options.url || "");
+        var match = route.match(/\/wp\/v2\/(chess_country|chess_state)(?:\?|$)/);
+        return match ? match[1] : "";
+    }
+
+    function createLocationFallback(taxonomy, data) {
+        var body = new window.URLSearchParams();
+        body.set("action", "cd_create_location_term");
+        body.set("nonce", config.locationNonce);
+        body.set("taxonomy", taxonomy);
+        body.set("name", String((data && data.name) || ""));
+        body.set("parent", String((data && data.parent) || 0));
+
+        return window.fetch(config.ajaxurl, {
+            method: "POST",
+            credentials: "same-origin",
+            headers: { "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8" },
+            body: body.toString()
+        }).then(function(response){ return response.json(); }).then(function(payload){
+            if (!payload || !payload.success || !payload.data || !payload.data.term) {
+                throw new Error((payload && payload.data && payload.data.message) || "Could not save the location.");
+            }
+            return payload.data.term;
+        });
+    }
+
+    wp.apiFetch.use(function(options, next){
+        var taxonomy = getLocationTaxonomy(options);
+        if (!taxonomy) return next(options);
+
+        return Promise.resolve(next(options)).catch(function(error){
+            return createLocationFallback(taxonomy, options.data || {}).catch(function(){ throw error; });
+        });
     });
 }(window.wp, window.cdFeaturedImageGuard));';
 
