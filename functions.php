@@ -4,7 +4,7 @@
  * Updates: SEO Taxonomy Slug changed to 'chess-in'
  */
 if (!defined('ABSPATH')) exit;
-define('CD_VERSION', '2.1.14');
+define('CD_VERSION', '2.1.15');
 define('CD_DIR', get_template_directory());
 define('CD_URI', get_template_directory_uri());
 
@@ -260,13 +260,20 @@ function cd_get_featured_image_debug_data( $post_id ) {
     );
 
     if ( $attachment ) {
+        $attachment_meta = wp_get_attachment_metadata( $attachment->ID );
         $data['attachment'] = array(
-            'id'        => (int) $attachment->ID,
-            'title'     => (string) get_the_title( $attachment ),
-            'status'    => (string) $attachment->post_status,
-            'mime_type' => (string) $attachment->post_mime_type,
-            'parent'    => (int) $attachment->post_parent,
-            'edit_link' => get_edit_post_link( $attachment->ID, 'raw' ),
+            'id'                         => (int) $attachment->ID,
+            'title'                      => (string) get_the_title( $attachment ),
+            'status'                     => (string) $attachment->post_status,
+            'mime_type'                  => (string) $attachment->post_mime_type,
+            'parent'                     => (int) $attachment->post_parent,
+            'guid'                       => (string) $attachment->guid,
+            'attached_file_meta'         => (string) get_post_meta( $attachment->ID, '_wp_attached_file', true ),
+            'metadata_file'              => is_array( $attachment_meta ) ? (string) ( $attachment_meta['file'] ?? '' ) : '',
+            'metadata_sizes'             => is_array( $attachment_meta ) && ! empty( $attachment_meta['sizes'] ) ? array_keys( $attachment_meta['sizes'] ) : array(),
+            'wordpress_attachment_url'   => wp_get_attachment_url( $attachment->ID ),
+            'theme_recovered_image_url'  => cd_get_attachment_original_url( $attachment->ID ),
+            'edit_link'                  => get_edit_post_link( $attachment->ID, 'raw' ),
         );
     }
 
@@ -390,6 +397,55 @@ function cd_is_valid_image_attachment( $attachment_id ) {
         && 0 === strpos( (string) $attachment->post_mime_type, 'image/' );
 }
 
+/* Recover image records imported without WordPress attachment metadata. */
+function cd_get_attachment_original_url( $attachment_id ) {
+    $attachment_id = (int) $attachment_id;
+    if ( $attachment_id <= 0 ) return '';
+
+    $url = wp_get_attachment_url( $attachment_id );
+    if ( $url ) return cd_normalize_upload_url( $url );
+
+    $relative_file = (string) get_post_meta( $attachment_id, '_wp_attached_file', true );
+    if ( $relative_file ) return cd_uploads_url( $relative_file );
+
+    $metadata = wp_get_attachment_metadata( $attachment_id );
+    if ( is_array( $metadata ) && ! empty( $metadata['file'] ) ) {
+        return cd_uploads_url( $metadata['file'] );
+    }
+
+    $attachment = get_post( $attachment_id );
+    if ( $attachment && filter_var( $attachment->guid, FILTER_VALIDATE_URL ) ) {
+        return cd_normalize_upload_url( $attachment->guid );
+    }
+
+    return '';
+}
+
+function cd_repair_attachment_file_reference( $attachment_id ) {
+    $attachment_id = (int) $attachment_id;
+    if ( $attachment_id <= 0 ) return array();
+
+    $before = (string) get_post_meta( $attachment_id, '_wp_attached_file', true );
+    $result = array( 'attached_file_before' => $before, 'attached_file_after' => $before );
+
+    if ( ! $before ) {
+        $attachment = get_post( $attachment_id );
+        $path       = $attachment ? wp_parse_url( $attachment->guid, PHP_URL_PATH ) : '';
+        $marker     = '/wp-content/uploads/';
+        $position   = $path ? strpos( $path, $marker ) : false;
+
+        if ( false !== $position ) {
+            $relative = ltrim( substr( $path, $position + strlen( $marker ) ), '/' );
+            if ( $relative ) {
+                update_post_meta( $attachment_id, '_wp_attached_file', $relative );
+                $result['attached_file_after'] = $relative;
+            }
+        }
+    }
+
+    return $result;
+}
+
 function cd_apply_featured_image_value( $post_id, $attachment_id, $source = 'unknown' ) {
     $post_id       = (int) $post_id;
     $attachment_id = (int) $attachment_id;
@@ -419,6 +475,7 @@ function cd_apply_featured_image_value( $post_id, $attachment_id, $source = 'unk
         return false;
     }
 
+    $attachment_repair          = cd_repair_attachment_file_reference( $attachment_id );
     $set_post_thumbnail_result = set_post_thumbnail( $post_id, $attachment_id );
     $direct_meta_result        = update_post_meta( $post_id, '_thumbnail_id', $attachment_id );
     clean_post_cache( $post_id );
@@ -431,6 +488,7 @@ function cd_apply_featured_image_value( $post_id, $attachment_id, $source = 'unk
         'direct_meta_result'        => $direct_meta_result,
         'saved_meta'                => (int) get_post_meta( $post_id, '_thumbnail_id', true ),
         'attachment_is_image'       => cd_debug_yes_no( wp_attachment_is_image( $attachment_id ) ),
+        'attachment_repair'         => $attachment_repair,
         'time'                      => current_time( 'mysql' ),
     ) ) );
 
@@ -677,6 +735,10 @@ function cd_get_featured_image_url( $post_id, $size = 'full' ) {
         $url = wp_get_attachment_image_url( $thumb_id, 'full' );
     }
 
+    if ( ! $url ) {
+        $url = cd_get_attachment_original_url( $thumb_id );
+    }
+
     return $url ? cd_normalize_upload_url( $url ) : '';
 }
 
@@ -702,6 +764,10 @@ function cd_get_attached_image_url( $post_id, $size = 'full' ) {
 
     if ( ! $url && 'full' !== $size ) {
         $url = wp_get_attachment_image_url( $attachment->ID, 'full' );
+    }
+
+    if ( ! $url ) {
+        $url = cd_get_attachment_original_url( $attachment->ID );
     }
 
     return $url ? cd_normalize_upload_url( $url ) : '';
