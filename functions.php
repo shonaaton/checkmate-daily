@@ -276,11 +276,16 @@ function cd_get_featured_image_debug_data( $post_id ) {
 function cd_render_editor_debug_panel() {
     if ( ! cd_is_editor_debug_request() ) return;
 
+    cd_render_debug_textarea_panel( 'Checkmate Daily Debug', cd_get_admin_debug_data(), 'Copy this full block and send it back if Countries, States, or Featured Image still fail.' );
+}
+add_action( 'admin_notices', 'cd_render_editor_debug_panel' );
+
+function cd_get_admin_debug_data( $post_id = null ) {
     $user = wp_get_current_user();
-    $post_id = cd_get_debug_post_id();
+    $post_id = is_null( $post_id ) ? cd_get_debug_post_id() : (int) $post_id;
     $screen = function_exists( 'get_current_screen' ) ? get_current_screen() : null;
 
-    $debug = array(
+    return array(
         'theme_version' => CD_VERSION,
         'screen'        => $screen ? array(
             'id'        => (string) $screen->id,
@@ -303,16 +308,49 @@ function cd_render_editor_debug_panel() {
         ),
         'featured_image' => cd_get_featured_image_debug_data( $post_id ),
     );
+}
 
+function cd_render_debug_textarea_panel( $title, $debug, $description = '' ) {
     echo '<div class="notice notice-info" style="padding:12px 14px;">';
-    echo '<h2 style="margin:0 0 8px;">Checkmate Daily Debug</h2>';
-    echo '<p style="margin:0 0 8px;">Copy this full block and send it back if Countries, States, or Featured Image still fail.</p>';
+    echo '<h2 style="margin:0 0 8px;">' . esc_html( $title ) . '</h2>';
+    if ( $description ) {
+        echo '<p style="margin:0 0 8px;">' . esc_html( $description ) . '</p>';
+    }
     echo '<textarea readonly style="width:100%;min-height:360px;font-family:monospace;font-size:12px;">';
     echo esc_textarea( wp_json_encode( $debug, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES ) );
     echo '</textarea>';
     echo '</div>';
 }
-add_action( 'admin_notices', 'cd_render_editor_debug_panel' );
+
+function cd_register_debug_tools_page() {
+    add_management_page(
+        'Checkmate Debug',
+        'Checkmate Debug',
+        'edit_posts',
+        'checkmate-daily-debug',
+        'cd_render_debug_tools_page'
+    );
+}
+add_action( 'admin_menu', 'cd_register_debug_tools_page' );
+
+function cd_render_debug_tools_page() {
+    if ( ! current_user_can( 'edit_posts' ) ) return;
+
+    $post_id = isset( $_GET['post_id'] ) ? (int) $_GET['post_id'] : cd_get_debug_post_id();
+    $debug = cd_get_admin_debug_data( $post_id );
+
+    echo '<div class="wrap">';
+    echo '<h1>Checkmate Daily Debug</h1>';
+    echo '<form method="get" style="margin:12px 0 18px;">';
+    echo '<input type="hidden" name="page" value="checkmate-daily-debug">';
+    echo '<label for="cd-debug-post-id"><strong>Post ID</strong></label> ';
+    echo '<input id="cd-debug-post-id" type="number" name="post_id" value="' . esc_attr( $post_id ) . '" class="small-text"> ';
+    submit_button( 'Load Debug', 'secondary', '', false );
+    echo '</form>';
+    echo '<p>For your current article, use Post ID <code>5731</code> if that is the article shown in your screenshot.</p>';
+    cd_render_debug_textarea_panel( 'Debug Output', $debug, 'Copy this full block and send it back.' );
+    echo '</div>';
+}
 
 function cd_render_editor_js_error_debugger() {
     if ( ! cd_is_editor_debug_request() ) return;
