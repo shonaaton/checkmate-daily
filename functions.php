@@ -4,7 +4,7 @@
  * Updates: SEO Taxonomy Slug changed to 'chess-in'
  */
 if (!defined('ABSPATH')) exit;
-define('CD_VERSION', '2.1.12');
+define('CD_VERSION', '2.1.13');
 define('CD_DIR', get_template_directory());
 define('CD_URI', get_template_directory_uri());
 
@@ -419,15 +419,19 @@ function cd_apply_featured_image_value( $post_id, $attachment_id, $source = 'unk
         return false;
     }
 
-    set_post_thumbnail( $post_id, $attachment_id );
+    $set_post_thumbnail_result = set_post_thumbnail( $post_id, $attachment_id );
+    $direct_meta_result        = update_post_meta( $post_id, '_thumbnail_id', $attachment_id );
     clean_post_cache( $post_id );
 
     update_post_meta( $post_id, '_cd_featured_image_last_save', wp_json_encode( array(
-        'source'        => $source,
-        'action'        => 'set',
-        'attachment_id' => $attachment_id,
-        'saved_meta'    => (int) get_post_meta( $post_id, '_thumbnail_id', true ),
-        'time'          => current_time( 'mysql' ),
+        'source'                    => $source,
+        'action'                    => 'set',
+        'attachment_id'             => $attachment_id,
+        'set_post_thumbnail_result' => $set_post_thumbnail_result,
+        'direct_meta_result'        => $direct_meta_result,
+        'saved_meta'                => (int) get_post_meta( $post_id, '_thumbnail_id', true ),
+        'attachment_is_image'       => cd_debug_yes_no( wp_attachment_is_image( $attachment_id ) ),
+        'time'                      => current_time( 'mysql' ),
     ) ) );
 
     return true;
