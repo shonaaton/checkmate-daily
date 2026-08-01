@@ -4,7 +4,7 @@
  * Updates: SEO Taxonomy Slug changed to 'chess-in'
  */
 if (!defined('ABSPATH')) exit;
-define('CD_VERSION', '2.1.17');
+define('CD_VERSION', '2.1.18');
 define('CD_DIR', get_template_directory());
 define('CD_URI', get_template_directory_uri());
 
@@ -379,6 +379,7 @@ function cd_get_featured_image_debug_data( $post_id ) {
         'post_type'                    => (string) $post_type,
         'post_type_supports_thumbnail' => $post_type ? cd_debug_yes_no( post_type_supports( $post_type, 'thumbnail' ) ) : 'unknown post type',
         'raw_thumbnail_meta'           => (string) get_post_meta( $post_id, '_thumbnail_id', true ),
+        'featured_image_guard_id'      => (string) get_post_meta( $post_id, '_cd_featured_image_guard_id', true ),
         'last_featured_save_attempt'   => (string) get_post_meta( $post_id, '_cd_featured_image_last_save', true ),
         'get_post_thumbnail_id'        => $thumb_id,
         'attachment_exists'            => cd_debug_yes_no( (bool) $attachment ),
@@ -590,6 +591,7 @@ function cd_apply_featured_image_value( $post_id, $attachment_id, $source = 'unk
 
     if ( $attachment_id <= 0 ) {
         delete_post_thumbnail( $post_id );
+        delete_post_meta( $post_id, '_cd_featured_image_guard_id' );
         update_post_meta( $post_id, '_cd_featured_image_last_save', wp_json_encode( array(
             'source'        => $source,
             'action'        => 'deleted',
@@ -612,6 +614,7 @@ function cd_apply_featured_image_value( $post_id, $attachment_id, $source = 'unk
     $attachment_repair          = cd_repair_attachment_file_reference( $attachment_id );
     $set_post_thumbnail_result = set_post_thumbnail( $post_id, $attachment_id );
     $direct_meta_result        = update_post_meta( $post_id, '_thumbnail_id', $attachment_id );
+    update_post_meta( $post_id, '_cd_featured_image_guard_id', $attachment_id );
     clean_post_cache( $post_id );
 
     update_post_meta( $post_id, '_cd_featured_image_last_save', wp_json_encode( array(
@@ -634,7 +637,17 @@ function cd_force_rest_featured_media_save( $post, $request, $creating ) {
     if ( ! $request instanceof WP_REST_Request ) return;
     if ( ! $request->offsetExists( 'featured_media' ) ) return;
 
-    cd_apply_featured_image_value( $post->ID, (int) $request->get_param( 'featured_media' ), 'rest_after_insert_post' );
+    $attachment_id = (int) $request->get_param( 'featured_media' );
+
+    if ( $attachment_id > 0 ) {
+        cd_apply_featured_image_value( $post->ID, $attachment_id, 'rest_after_insert_post' );
+        return;
+    }
+
+    $guard_id = (int) get_post_meta( $post->ID, '_cd_featured_image_guard_id', true );
+    if ( $guard_id > 0 && cd_is_valid_image_attachment( $guard_id ) ) {
+        cd_apply_featured_image_value( $post->ID, $guard_id, 'rest_after_insert_post_guard_restore' );
+    }
 }
 add_action( 'rest_after_insert_post', 'cd_force_rest_featured_media_save', 100, 3 );
 
@@ -675,6 +688,12 @@ function cd_enqueue_featured_image_editor_guard() {
     if ( ! $screen || 'post' !== $screen->post_type || 'post' !== $screen->base ) return;
     if ( ! wp_script_is( 'wp-edit-post', 'registered' ) ) return;
 
+    $post_id  = isset( $_GET['post'] ) ? (int) $_GET['post'] : 0;
+    $thumb_id = $post_id ? (int) get_post_thumbnail_id( $post_id ) : 0;
+    if ( $thumb_id > 0 && ! get_post_meta( $post_id, '_cd_featured_image_guard_id', true ) ) {
+        update_post_meta( $post_id, '_cd_featured_image_guard_id', $thumb_id );
+    }
+
     $config = array(
         'ajaxurl'       => admin_url( 'admin-ajax.php' ),
         'nonce'         => wp_create_nonce( 'cd_featured_image_guard' ),
@@ -688,6 +707,8 @@ function cd_enqueue_featured_image_editor_guard() {
     var lastSeen = null;
     var lastSent = null;
     var wasSaving = false;
+    var hasInitialized = false;
+    var suppressZeroUntil = 0;
     var timer = null;
 
     function getEditor() {
@@ -712,7 +733,7 @@ function cd_enqueue_featured_image_editor_guard() {
         var postId = getPostId();
         var mediaId = getFeaturedMedia();
         if (!postId || mediaId === null) return;
-        if (mediaId <= 0) return;
+        if (mediaId <= 0 && source === "after_save") return;
         if (mediaId === lastSent && source !== "after_save") return;
 
         lastSent = mediaId;
@@ -737,15 +758,21 @@ function cd_enqueue_featured_image_editor_guard() {
     }
 
     wp.data.subscribe(function(){
+        var editor = getEditor();
+        var isSaving = !!(editor && editor.isSavingPost && editor.isSavingPost());
+        var justFinishedSaving = wasSaving && !isSaving;
+        if (justFinishedSaving) suppressZeroUntil = Date.now() + 1500;
+
         var mediaId = getFeaturedMedia();
         if (mediaId !== null && mediaId !== lastSeen) {
             lastSeen = mediaId;
-            scheduleSend("editor_change");
+            if ((hasInitialized || mediaId > 0) && !(mediaId <= 0 && (isSaving || Date.now() < suppressZeroUntil))) {
+                scheduleSend("editor_change");
+            }
         }
+        hasInitialized = true;
 
-        var editor = getEditor();
-        var isSaving = !!(editor && editor.isSavingPost && editor.isSavingPost());
-        if (wasSaving && !isSaving) {
+        if (justFinishedSaving) {
             scheduleSend("after_save");
         }
         wasSaving = isSaving;
