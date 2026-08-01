@@ -68,15 +68,24 @@ add_action('init', 'cd_register_cpts');
 
 /* ── TAXONOMIES: STATES & COUNTRIES ── */
 function cd_register_taxonomies() {
+    $location_tax_caps = array(
+        'manage_terms' => 'publish_posts',
+        'edit_terms'   => 'publish_posts',
+        'delete_terms' => 'manage_categories',
+        'assign_terms' => 'edit_posts',
+    );
+
     register_taxonomy('chess_state', 'post', array(
         'labels'       => array('name'=>'Chess States','singular_name'=>'State','add_new_item'=>'Add New State'),
         'hierarchical' => true, 'public' => true, 'show_in_rest' => true,
         'rewrite'      => array('slug'=>'chess-in'),
+        'capabilities' => $location_tax_caps,
     ));
     register_taxonomy('chess_country', 'post', array(
         'labels'       => array('name'=>'Countries','singular_name'=>'Country','add_new_item'=>'Add New Country'),
         'hierarchical' => true, 'public' => true, 'show_in_rest' => true,
         'rewrite'      => array('slug'=>'chess-news'),
+        'capabilities' => $location_tax_caps,
     ));
 }
 add_action('init', 'cd_register_taxonomies');
@@ -215,14 +224,19 @@ function cd_get_first_content_image_url( $post_id ) {
 function cd_get_post_image_url( $post_id, $size = 'full' ) {
     $candidates = array(
         cd_get_featured_image_url( $post_id, $size ),
-        cd_get_attached_image_url( $post_id, $size ),
-        cd_get_first_content_image_url( $post_id ),
     );
 
     if ( 'full' !== $size ) {
         $candidates[] = cd_get_featured_image_url( $post_id, 'full' );
+    }
+
+    $candidates[] = cd_get_attached_image_url( $post_id, $size );
+
+    if ( 'full' !== $size ) {
         $candidates[] = cd_get_attached_image_url( $post_id, 'full' );
     }
+
+    $candidates[] = cd_get_first_content_image_url( $post_id );
 
     foreach ( $candidates as $url ) {
         if ( $url ) return cd_normalize_upload_url( $url );
@@ -233,9 +247,9 @@ function cd_get_post_image_url( $post_id, $size = 'full' ) {
 
 function cd_get_post_image_fallback_url( $post_id, $primary = '' ) {
     $candidates = array(
-        cd_get_first_content_image_url( $post_id ),
-        cd_get_attached_image_url( $post_id, 'full' ),
         cd_get_featured_image_url( $post_id, 'full' ),
+        cd_get_attached_image_url( $post_id, 'full' ),
+        cd_get_first_content_image_url( $post_id ),
     );
 
     foreach ( $candidates as $url ) {
@@ -1055,8 +1069,10 @@ function cd_ajax_filter() {
         echo '<div class="cd-news-grid">';
         while ($q->have_posts()) { $q->the_post();
             $ac = get_the_category(); $ac = $ac ? $ac[0] : null;
-            $ai = get_the_post_thumbnail_url(get_the_ID(),'cd-card');
-            echo '<div class="cd-news-card"><div class="cd-news-card-img">' . ($ai ? '<img src="' . esc_url($ai) . '" alt="' . the_title_attribute(array('echo'=>false)) . '" loading="lazy">' : '') . '</div>';
+            $ai = cd_get_post_image_url(get_the_ID(),'cd-card');
+            echo '<div class="cd-news-card"><div class="cd-news-card-img">';
+            if ($ai) cd_render_post_image(get_the_ID(), 'cd-card', array('width'=>400,'height'=>230));
+            echo '</div>';
             echo '<div class="cd-news-card-body">';
             if ($ac) echo '<a href="' . esc_url(get_category_link($ac->term_id)) . '" class="cd-cat-badge ' . esc_attr(cd_get_cat_class($ac->slug)) . '">' . esc_html($ac->name) . '</a>';
             echo '<div class="cd-news-card-title"><a href="' . get_permalink() . '">' . get_the_title() . '</a></div>';

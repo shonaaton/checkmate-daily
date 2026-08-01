@@ -111,11 +111,11 @@ $is_format  = !is_null($fmt);
     <?php while (have_posts()) : the_post();
       $a_cats = get_the_category();
       $a_cat  = $a_cats ? $a_cats[0] : null;
-      $a_img  = get_the_post_thumbnail_url(get_the_ID(), 'cd-card');
+      $a_img  = cd_get_post_image_url(get_the_ID(), 'cd-card');
     ?>
     <div class="cd-news-card">
       <div class="cd-news-card-img">
-        <?php if ($a_img) : ?><img src="<?php echo esc_url($a_img); ?>" alt="<?php the_title_attribute(); ?>" loading="lazy"><?php endif; ?>
+        <?php if ($a_img) : ?><?php cd_render_post_image(get_the_ID(), 'cd-card', array('width'=>400, 'height'=>230)); ?><?php endif; ?>
       </div>
       <div class="cd-news-card-body">
         <?php if ($a_cat) : ?>

@@ -47,10 +47,10 @@ get_header();
       echo '<div class="cd-news-grid">';
       while ($all_q->have_posts()) : $all_q->the_post();
         $nc = get_the_category(); $nc = $nc ? $nc[0] : null;
-        $ni = get_the_post_thumbnail_url(get_the_ID(), 'cd-card');
+        $ni = cd_get_post_image_url(get_the_ID(), 'cd-card');
         ?>
         <div class="cd-news-card">
-          <div class="cd-news-card-img"><?php if ($ni) echo '<img src="' . esc_url($ni) . '" alt="' . the_title_attribute(array('echo'=>false)) . '" loading="lazy">'; ?></div>
+          <div class="cd-news-card-img"><?php if ($ni) cd_render_post_image(get_the_ID(), 'cd-card', array('width'=>400, 'height'=>230)); ?></div>
           <div class="cd-news-card-body">
             <?php if ($nc) : ?><a href="<?php echo esc_url(get_category_link($nc->term_id)); ?>" class="cd-cat-badge <?php echo esc_attr(cd_get_cat_class($nc->slug)); ?>"><?php echo esc_html($nc->name); ?></a><?php endif; ?>
             <div class="cd-news-card-title"><a href="<?php the_permalink(); ?>"><?php the_title(); ?></a></div>

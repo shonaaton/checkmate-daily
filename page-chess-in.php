@@ -32,12 +32,12 @@ get_header();
       while ($india_q->have_posts()) : $india_q->the_post();
         $i_cats   = get_the_category();
         $i_cat    = $i_cats ? $i_cats[0] : null;
-        $i_img    = get_the_post_thumbnail_url(get_the_ID(),'cd-card');
+        $i_img    = cd_get_post_image_url(get_the_ID(),'cd-card');
         $i_states = wp_get_object_terms(get_the_ID(),'chess_state');
         $i_state  = $i_states && !is_wp_error($i_states) ? $i_states[0] : null;
         ?>
         <div class="cd-news-card">
-          <div class="cd-news-card-img"><?php if ($i_img) : ?><img src="<?php echo esc_url($i_img); ?>" alt="<?php the_title_attribute(); ?>" loading="lazy"><?php endif; ?></div>
+          <div class="cd-news-card-img"><?php if ($i_img) : ?><?php cd_render_post_image(get_the_ID(), 'cd-card', array('width'=>400, 'height'=>230)); ?><?php endif; ?></div>
           <div class="cd-news-card-body">
             <?php if ($i_state) : ?>
               <a href="<?php echo esc_url(get_term_link($i_state)); ?>" class="cd-cat-badge"><?php echo esc_html($i_state->name); ?></a>

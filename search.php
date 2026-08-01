@@ -9,9 +9,9 @@
 <div class="cd-news-grid">
 <?php while(have_posts()):the_post();
   $s_cats=get_the_category();$s_cat=$s_cats?$s_cats[0]:null;
-  $s_img=get_the_post_thumbnail_url(get_the_ID(),'cd-card');?>
+  $s_img=cd_get_post_image_url(get_the_ID(),'cd-card');?>
 <div class="cd-news-card">
-  <div class="cd-news-card-img"><?php if($s_img):?><img src="<?php echo esc_url($s_img);?>" alt="<?php the_title_attribute();?>" loading="lazy"><?php endif;?></div>
+  <div class="cd-news-card-img"><?php if($s_img):?><?php cd_render_post_image(get_the_ID(), 'cd-card', array('width'=>400,'height'=>230)); ?><?php endif;?></div>
   <div class="cd-news-card-body">
     <?php if($s_cat):?><a href="<?php echo esc_url(get_category_link($s_cat->term_id));?>" class="cd-cat-badge"><?php echo esc_html($s_cat->name);?></a><?php endif;?>
     <div class="cd-news-card-title"><a href="<?php the_permalink();?>"><?php the_title();?></a></div>

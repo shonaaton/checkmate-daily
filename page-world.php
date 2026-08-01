@@ -52,12 +52,12 @@ get_header();
     if ($world_q->have_posts()) :
       echo '<div class="cd-news-grid">';
       while ($world_q->have_posts()) : $world_q->the_post();
-        $i_img   = get_the_post_thumbnail_url(get_the_ID(),'cd-card');
+        $i_img   = cd_get_post_image_url(get_the_ID(),'cd-card');
         $i_terms = wp_get_object_terms(get_the_ID(), 'chess_country');
         $i_term  = $i_terms && !is_wp_error($i_terms) ? $i_terms[0] : null;
         ?>
         <div class="cd-news-card">
-          <div class="cd-news-card-img"><?php if ($i_img) : ?><img src="<?php echo esc_url($i_img); ?>" alt="<?php the_title_attribute(); ?>" loading="lazy"><?php endif; ?></div>
+          <div class="cd-news-card-img"><?php if ($i_img) : ?><?php cd_render_post_image(get_the_ID(), 'cd-card', array('width'=>400, 'height'=>230)); ?><?php endif; ?></div>
           <div class="cd-news-card-body">
             <?php if ($i_term) : ?>
               <a href="<?php echo esc_url(get_term_link($i_term)); ?>" class="cd-cat-badge dark"><?php echo esc_html($i_term->name); ?></a>
