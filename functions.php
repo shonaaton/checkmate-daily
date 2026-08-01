@@ -4,7 +4,7 @@
  * Updates: SEO Taxonomy Slug changed to 'chess-in'
  */
 if (!defined('ABSPATH')) exit;
-define('CD_VERSION', '2.1.13');
+define('CD_VERSION', '2.1.14');
 define('CD_DIR', get_template_directory());
 define('CD_URI', get_template_directory_uri());
 
@@ -454,6 +454,114 @@ function cd_force_classic_featured_image_save( $post_id, $post, $update ) {
     cd_apply_featured_image_value( $post_id, (int) wp_unslash( $_POST['_thumbnail_id'] ), 'save_post_post' );
 }
 add_action( 'save_post_post', 'cd_force_classic_featured_image_save', 100, 3 );
+
+function cd_ajax_set_featured_image() {
+    check_ajax_referer( 'cd_featured_image_guard', 'nonce' );
+
+    $post_id       = isset( $_POST['post_id'] ) ? (int) wp_unslash( $_POST['post_id'] ) : 0;
+    $attachment_id = isset( $_POST['attachment_id'] ) ? (int) wp_unslash( $_POST['attachment_id'] ) : 0;
+    $source        = isset( $_POST['source'] ) ? sanitize_key( wp_unslash( $_POST['source'] ) ) : 'ajax_featured_image_guard';
+
+    if ( $post_id <= 0 || ! current_user_can( 'edit_post', $post_id ) ) {
+        wp_send_json_error( array( 'message' => 'Not allowed to edit this post.' ), 403 );
+    }
+
+    $saved = cd_apply_featured_image_value( $post_id, $attachment_id, $source );
+
+    wp_send_json_success( array(
+        'saved'        => cd_debug_yes_no( $saved ),
+        'post_id'      => $post_id,
+        'requested_id' => $attachment_id,
+        'stored_id'    => (int) get_post_meta( $post_id, '_thumbnail_id', true ),
+        'log'          => (string) get_post_meta( $post_id, '_cd_featured_image_last_save', true ),
+    ) );
+}
+add_action( 'wp_ajax_cd_set_featured_image', 'cd_ajax_set_featured_image' );
+
+function cd_enqueue_featured_image_editor_guard() {
+    $screen = function_exists( 'get_current_screen' ) ? get_current_screen() : null;
+    if ( ! $screen || 'post' !== $screen->post_type || 'post' !== $screen->base ) return;
+    if ( ! wp_script_is( 'wp-edit-post', 'registered' ) ) return;
+
+    $config = array(
+        'ajaxurl' => admin_url( 'admin-ajax.php' ),
+        'nonce'   => wp_create_nonce( 'cd_featured_image_guard' ),
+    );
+
+    $script = 'window.cdFeaturedImageGuard=' . wp_json_encode( $config ) . ';
+(function(wp, config){
+    if (!wp || !wp.data || !window.fetch || !config) return;
+
+    var lastSeen = null;
+    var lastSent = null;
+    var wasSaving = false;
+    var timer = null;
+
+    function getEditor() {
+        return wp.data.select("core/editor");
+    }
+
+    function getPostId() {
+        var editor = getEditor();
+        return editor && editor.getCurrentPostId ? parseInt(editor.getCurrentPostId(), 10) || 0 : 0;
+    }
+
+    function getFeaturedMedia() {
+        var editor = getEditor();
+        if (!editor || !editor.getEditedPostAttribute) return null;
+        var value = editor.getEditedPostAttribute("featured_media");
+        if (value === undefined || value === null) return null;
+        value = parseInt(value, 10);
+        return isNaN(value) ? null : value;
+    }
+
+    function sendFeaturedMedia(source) {
+        var postId = getPostId();
+        var mediaId = getFeaturedMedia();
+        if (!postId || mediaId === null) return;
+        if (mediaId <= 0) return;
+        if (mediaId === lastSent && source !== "after_save") return;
+
+        lastSent = mediaId;
+        var body = new window.URLSearchParams();
+        body.set("action", "cd_set_featured_image");
+        body.set("nonce", config.nonce);
+        body.set("post_id", String(postId));
+        body.set("attachment_id", String(mediaId));
+        body.set("source", source);
+
+        window.fetch(config.ajaxurl, {
+            method: "POST",
+            credentials: "same-origin",
+            headers: { "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8" },
+            body: body.toString()
+        }).catch(function(){});
+    }
+
+    function scheduleSend(source) {
+        window.clearTimeout(timer);
+        timer = window.setTimeout(function(){ sendFeaturedMedia(source); }, 350);
+    }
+
+    wp.data.subscribe(function(){
+        var mediaId = getFeaturedMedia();
+        if (mediaId !== null && mediaId !== lastSeen) {
+            lastSeen = mediaId;
+            scheduleSend("editor_change");
+        }
+
+        var editor = getEditor();
+        var isSaving = !!(editor && editor.isSavingPost && editor.isSavingPost());
+        if (wasSaving && !isSaving) {
+            scheduleSend("after_save");
+        }
+        wasSaving = isSaving;
+    });
+}(window.wp, window.cdFeaturedImageGuard));';
+
+    wp_add_inline_script( 'wp-edit-post', $script, 'after' );
+}
+add_action( 'enqueue_block_editor_assets', 'cd_enqueue_featured_image_editor_guard' );
 
 function cd_is_frontend_debug_request() {
     return ! is_admin()
