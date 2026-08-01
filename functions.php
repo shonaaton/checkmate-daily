@@ -4,7 +4,7 @@
  * Updates: SEO Taxonomy Slug changed to 'chess-in'
  */
 if (!defined('ABSPATH')) exit;
-define('CD_VERSION', '2.1.9');
+define('CD_VERSION', '2.1.10');
 define('CD_DIR', get_template_directory());
 define('CD_URI', get_template_directory_uri());
 
