@@ -67,26 +67,120 @@ function cd_register_cpts() {
 add_action('init', 'cd_register_cpts');
 
 /* ── TAXONOMIES: STATES & COUNTRIES ── */
-function cd_register_taxonomies() {
-    $location_tax_caps = array(
-        'manage_terms' => 'edit_posts',
-        'edit_terms'   => 'edit_posts',
+function cd_get_location_taxonomy_caps() {
+    return array(
+        'manage_terms' => 'cd_manage_location_terms',
+        'edit_terms'   => 'cd_edit_location_terms',
         'delete_terms' => 'manage_categories',
-        'assign_terms' => 'edit_posts',
+        'assign_terms' => 'cd_assign_location_terms',
+    );
+}
+
+function cd_grant_location_taxonomy_caps() {
+    $roles = wp_roles();
+    if ( ! $roles || empty( $roles->roles ) ) return;
+
+    $caps = array(
+        'cd_manage_location_terms',
+        'cd_edit_location_terms',
+        'cd_assign_location_terms',
     );
 
-    register_taxonomy('chess_state', 'post', array(
-        'labels'       => array('name'=>'Chess States','singular_name'=>'State','add_new_item'=>'Add New State'),
-        'hierarchical' => true, 'public' => true, 'show_in_rest' => true,
-        'rewrite'      => array('slug'=>'chess-in'),
-        'capabilities' => $location_tax_caps,
-    ));
-    register_taxonomy('chess_country', 'post', array(
-        'labels'       => array('name'=>'Countries','singular_name'=>'Country','add_new_item'=>'Add New Country'),
-        'hierarchical' => true, 'public' => true, 'show_in_rest' => true,
-        'rewrite'      => array('slug'=>'chess-news'),
-        'capabilities' => $location_tax_caps,
-    ));
+    foreach ( array_keys( $roles->roles ) as $role_name ) {
+        $role = get_role( $role_name );
+        if ( ! $role || empty( $role->capabilities['edit_posts'] ) ) continue;
+
+        foreach ( $caps as $cap ) {
+            $role->add_cap( $cap );
+        }
+    }
+}
+add_action( 'init', 'cd_grant_location_taxonomy_caps', 20 );
+
+function cd_allow_location_taxonomy_caps( $allcaps ) {
+    if ( empty( $allcaps['edit_posts'] ) && empty( $allcaps['publish_posts'] ) && empty( $allcaps['manage_categories'] ) ) {
+        return $allcaps;
+    }
+
+    $allcaps['cd_manage_location_terms'] = true;
+    $allcaps['cd_edit_location_terms']   = true;
+    $allcaps['cd_assign_location_terms'] = true;
+
+    return $allcaps;
+}
+add_filter( 'user_has_cap', 'cd_allow_location_taxonomy_caps' );
+
+function cd_get_location_taxonomy_labels( $singular, $plural ) {
+    return array(
+        'name'                       => $plural,
+        'singular_name'              => $singular,
+        'menu_name'                  => $plural,
+        'all_items'                  => 'All ' . $plural,
+        'edit_item'                  => 'Edit ' . $singular,
+        'view_item'                  => 'View ' . $singular,
+        'update_item'                => 'Update ' . $singular,
+        'add_new_item'               => 'Add New ' . $singular,
+        'new_item_name'              => 'New ' . $singular . ' Name',
+        'parent_item'                => 'Parent ' . $singular,
+        'parent_item_colon'          => 'Parent ' . $singular . ':',
+        'search_items'               => 'Search ' . $plural,
+        'popular_items'              => 'Popular ' . $plural,
+        'separate_items_with_commas' => 'Separate ' . strtolower( $plural ) . ' with commas',
+        'add_or_remove_items'        => 'Add or remove ' . strtolower( $plural ),
+        'choose_from_most_used'      => 'Choose from the most used ' . strtolower( $plural ),
+        'not_found'                  => 'No ' . strtolower( $plural ) . ' found',
+        'back_to_items'              => 'Back to ' . $plural,
+        'item_link'                  => $singular . ' Link',
+        'item_link_description'      => 'A link to a ' . strtolower( $singular ) . '.',
+    );
+}
+
+function cd_get_location_taxonomy_args( $singular, $plural, $rewrite_slug, $rest_base ) {
+    return array(
+        'labels'              => cd_get_location_taxonomy_labels( $singular, $plural ),
+        'hierarchical'        => true,
+        'public'              => true,
+        'show_ui'             => true,
+        'show_admin_column'   => true,
+        'show_in_quick_edit'  => true,
+        'show_in_nav_menus'   => true,
+        'show_in_rest'        => true,
+        'rest_base'           => $rest_base,
+        'rest_controller_class' => 'WP_REST_Terms_Controller',
+        'rewrite'             => array( 'slug' => $rewrite_slug ),
+        'capabilities'        => cd_get_location_taxonomy_caps(),
+    );
+}
+
+function cd_normalize_location_term_rest_response( $response ) {
+    if ( ! $response instanceof WP_REST_Response ) return $response;
+
+    $data = $response->get_data();
+
+    foreach ( array( 'name', 'slug', 'description', 'taxonomy', 'link' ) as $field ) {
+        if ( ! array_key_exists( $field, $data ) || null === $data[ $field ] ) {
+            $data[ $field ] = '';
+        }
+    }
+
+    $response->set_data( $data );
+    return $response;
+}
+add_filter( 'rest_prepare_chess_state', 'cd_normalize_location_term_rest_response' );
+add_filter( 'rest_prepare_chess_country', 'cd_normalize_location_term_rest_response' );
+
+function cd_register_taxonomies() {
+    register_taxonomy(
+        'chess_state',
+        array( 'post' ),
+        cd_get_location_taxonomy_args( 'State', 'Chess States', 'chess-in', 'chess_state' )
+    );
+
+    register_taxonomy(
+        'chess_country',
+        array( 'post' ),
+        cd_get_location_taxonomy_args( 'Country', 'Countries', 'chess-news', 'chess_country' )
+    );
 }
 add_action('init', 'cd_register_taxonomies');
 
@@ -164,6 +258,10 @@ function cd_get_featured_image_url( $post_id, $size = 'full' ) {
     return $url ? cd_normalize_upload_url( $url ) : '';
 }
 
+function cd_has_featured_image( $post_id ) {
+    return (bool) get_post_thumbnail_id( $post_id );
+}
+
 function cd_get_attached_image_url( $post_id, $size = 'full' ) {
     $attachments = get_children( array(
         'post_parent'    => $post_id,
@@ -222,15 +320,25 @@ function cd_get_first_content_image_url( $post_id ) {
 }
 
 function cd_get_post_image_url( $post_id, $size = 'full' ) {
-    $candidates = array(
-        cd_get_featured_image_url( $post_id, $size ),
-    );
+    if ( cd_has_featured_image( $post_id ) ) {
+        $candidates = array(
+            cd_get_featured_image_url( $post_id, $size ),
+        );
 
-    if ( 'full' !== $size ) {
-        $candidates[] = cd_get_featured_image_url( $post_id, 'full' );
+        if ( 'full' !== $size ) {
+            $candidates[] = cd_get_featured_image_url( $post_id, 'full' );
+        }
+
+        foreach ( $candidates as $url ) {
+            if ( $url ) return cd_normalize_upload_url( $url );
+        }
+
+        return '';
     }
 
-    $candidates[] = cd_get_attached_image_url( $post_id, $size );
+    $candidates = array(
+        cd_get_attached_image_url( $post_id, $size ),
+    );
 
     if ( 'full' !== $size ) {
         $candidates[] = cd_get_attached_image_url( $post_id, 'full' );
@@ -246,8 +354,14 @@ function cd_get_post_image_url( $post_id, $size = 'full' ) {
 }
 
 function cd_get_post_image_fallback_url( $post_id, $primary = '' ) {
+    if ( cd_has_featured_image( $post_id ) ) {
+        $url = cd_get_featured_image_url( $post_id, 'full' );
+        $url = $url ? cd_normalize_upload_url( $url ) : '';
+
+        return ( $url && $url !== $primary ) ? $url : '';
+    }
+
     $candidates = array(
-        cd_get_featured_image_url( $post_id, 'full' ),
         cd_get_attached_image_url( $post_id, 'full' ),
         cd_get_first_content_image_url( $post_id ),
     );
@@ -471,9 +585,11 @@ function cd_render_empty_state($context = 'category') {
     foreach ($trending as $tp) {
         $tp_cats = get_the_category($tp->ID);
         $tp_cat  = $tp_cats ? $tp_cats[0] : null;
-        $tp_img  = get_the_post_thumbnail_url($tp->ID, 'cd-card');
+        $tp_img  = cd_get_post_image_url($tp->ID, 'cd-card');
         echo '<div class="cd-news-card">';
-        echo '<div class="cd-news-card-img">' . ($tp_img ? '<img src="' . esc_url($tp_img) . '" alt="' . esc_attr(get_the_title($tp->ID)) . '" loading="lazy">' : '') . '</div>';
+        echo '<div class="cd-news-card-img">';
+        if ($tp_img) cd_render_post_image($tp->ID, 'cd-card', array('width'=>400, 'height'=>230));
+        echo '</div>';
         echo '<div class="cd-news-card-body">';
         if ($tp_cat) echo '<a href="' . esc_url(get_category_link($tp_cat->term_id)) . '" class="cd-cat-badge ' . esc_attr(cd_get_cat_class($tp_cat->slug)) . '">' . esc_html($tp_cat->name) . '</a>';
         echo '<div class="cd-news-card-title"><a href="' . esc_url(get_permalink($tp->ID)) . '">' . esc_html(get_the_title($tp->ID)) . '</a></div>';
@@ -1162,7 +1278,7 @@ function cd_render_content_flow($exclude='') {
         echo '<div class="cd-section-head"><h2>You May Also Like</h2></div>';
         echo '<div style="display:flex;gap:10px;overflow-x:auto;padding-bottom:4px">';
         foreach ($posts as $p) {
-            $img = get_the_post_thumbnail_url($p->ID,'cd-card');
+            $img = cd_get_post_image_url($p->ID,'cd-card');
             echo '<a href="'.esc_url(get_permalink($p->ID)).'" style="background:var(--cd-gray-light);border-radius:var(--cd-radius);min-width:190px;max-width:200px;flex-shrink:0;overflow:hidden;text-decoration:none;display:block">';
             if ($img) echo '<img src="'.esc_url($img).'" alt="'.esc_attr(get_the_title($p->ID)).'" style="width:100%;height:90px;object-fit:cover" loading="lazy">';
             echo '<div style="padding:8px"><div style="font-size:12px;font-weight:700;color:var(--cd-black);line-height:1.35">'.esc_html(get_the_title($p->ID)).'</div>';

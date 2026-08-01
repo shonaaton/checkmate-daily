@@ -3095,6 +3095,14 @@ iframe[src*="youtu.be"] {
 .cd-theme-dark .cd-library-short-body h3 a {
     color: #f4f7fa !important;
 }
+.cd-theme-dark .cd-hero .hero-title,
+.cd-theme-dark .cd-hero .hero-title a,
+.cd-theme-dark .cd-hero .hero-title a:visited {
+    color: #ffffff !important;
+}
+.cd-theme-dark .cd-hero .hero-title a:hover {
+    color: var(--cd-blue) !important;
+}
 .cd-theme-dark p,
 .cd-theme-dark .cd-news-card-excerpt,
 .cd-theme-dark .cd-single-content,

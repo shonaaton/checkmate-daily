@@ -18,7 +18,7 @@ get_header();
   <?php while (have_posts()) : the_post();
       $cats    = get_the_category();
       $cat     = $cats ? $cats[0] : null;
-      $feat_img = get_the_post_thumbnail_url(get_the_ID(),'cd-hero');
+      $feat_img = cd_get_post_image_url(get_the_ID(),'cd-hero');
   ?>
 
     <!-- Breadcrumb -->
@@ -53,9 +53,7 @@ get_header();
 
       <!-- Featured Image -->
       <?php if ($feat_img) : ?>
-        <img src="<?php echo esc_url($feat_img); ?>"
-             alt="<?php the_title_attribute(); ?>"
-             class="cd-single-feat-img" loading="eager" width="1100" height="420">
+        <?php cd_render_post_image(get_the_ID(), 'cd-hero', array('class'=>'cd-single-feat-img', 'loading'=>'eager', 'width'=>1100, 'height'=>420)); ?>
       <?php endif; ?>
 
       <!-- Content -->
@@ -111,12 +109,12 @@ get_header();
       <?php foreach ($related as $rp) :
           $r_cats = get_the_category($rp->ID);
           $r_cat  = $r_cats ? $r_cats[0] : null;
-          $r_img  = get_the_post_thumbnail_url($rp->ID,'cd-card');
+          $r_img  = cd_get_post_image_url($rp->ID,'cd-card');
       ?>
       <div class="cd-news-card">
         <div class="cd-news-card-img">
           <?php if ($r_img) : ?>
-            <img src="<?php echo esc_url($r_img); ?>" alt="<?php echo esc_attr(get_the_title($rp->ID)); ?>" loading="lazy" width="400" height="230">
+            <?php cd_render_post_image($rp->ID, 'cd-card', array('width'=>400, 'height'=>230)); ?>
           <?php endif; ?>
         </div>
         <div class="cd-news-card-body">
