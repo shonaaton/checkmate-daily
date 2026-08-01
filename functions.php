@@ -69,8 +69,8 @@ add_action('init', 'cd_register_cpts');
 /* ── TAXONOMIES: STATES & COUNTRIES ── */
 function cd_register_taxonomies() {
     $location_tax_caps = array(
-        'manage_terms' => 'publish_posts',
-        'edit_terms'   => 'publish_posts',
+        'manage_terms' => 'edit_posts',
+        'edit_terms'   => 'edit_posts',
         'delete_terms' => 'manage_categories',
         'assign_terms' => 'edit_posts',
     );
