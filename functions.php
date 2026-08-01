@@ -4,7 +4,7 @@
  * Updates: SEO Taxonomy Slug changed to 'chess-in'
  */
 if (!defined('ABSPATH')) exit;
-define('CD_VERSION', '2.1.15');
+define('CD_VERSION', '2.1.16');
 define('CD_DIR', get_template_directory());
 define('CD_URI', get_template_directory_uri());
 
@@ -119,22 +119,79 @@ function cd_get_location_taxonomy_args( $singular, $plural, $rewrite_slug, $rest
     );
 }
 
+function cd_normalize_location_term_rest_data( $data ) {
+    if ( ! is_array( $data ) ) return $data;
+
+    foreach ( array( 'name', 'slug', 'description', 'taxonomy', 'link' ) as $field ) {
+        if ( ! array_key_exists( $field, $data ) || null === $data[ $field ] || ! is_scalar( $data[ $field ] ) ) {
+            $data[ $field ] = '';
+        } else {
+            $data[ $field ] = (string) $data[ $field ];
+        }
+    }
+
+    return $data;
+}
+
 function cd_normalize_location_term_rest_response( $response ) {
     if ( ! $response instanceof WP_REST_Response ) return $response;
 
-    $data = $response->get_data();
+    $response->set_data( cd_normalize_location_term_rest_data( $response->get_data() ) );
+    return $response;
+}
+add_filter( 'rest_prepare_chess_state', 'cd_normalize_location_term_rest_response', PHP_INT_MAX );
+add_filter( 'rest_prepare_chess_country', 'cd_normalize_location_term_rest_response', PHP_INT_MAX );
 
-    foreach ( array( 'name', 'slug', 'description', 'taxonomy', 'link' ) as $field ) {
-        if ( ! array_key_exists( $field, $data ) || null === $data[ $field ] ) {
-            $data[ $field ] = '';
+function cd_is_location_taxonomy_rest_request( $request ) {
+    if ( ! $request instanceof WP_REST_Request ) return false;
+
+    $route = $request->get_route();
+    return 0 === strpos( $route, '/wp/v2/chess_country' ) || 0 === strpos( $route, '/wp/v2/chess_state' );
+}
+
+/* Run after every plugin has modified the REST response Gutenberg receives. */
+function cd_finalize_location_taxonomy_rest_response( $response, $server, $request ) {
+    if ( ! $response instanceof WP_REST_Response || ! cd_is_location_taxonomy_rest_request( $request ) ) {
+        return $response;
+    }
+
+    if ( $response->get_status() >= 400 ) return $response;
+
+    $data = $response->get_data();
+    if ( isset( $data[0] ) && is_array( $data[0] ) ) {
+        foreach ( $data as $index => $term_data ) {
+            $data[ $index ] = cd_normalize_location_term_rest_data( $term_data );
         }
+    } else {
+        $data = cd_normalize_location_term_rest_data( $data );
     }
 
     $response->set_data( $data );
     return $response;
 }
-add_filter( 'rest_prepare_chess_state', 'cd_normalize_location_term_rest_response' );
-add_filter( 'rest_prepare_chess_country', 'cd_normalize_location_term_rest_response' );
+add_filter( 'rest_post_dispatch', 'cd_finalize_location_taxonomy_rest_response', PHP_INT_MAX, 3 );
+
+function cd_record_location_taxonomy_create_attempt( $response, $handler, $request ) {
+    if ( ! cd_is_location_taxonomy_rest_request( $request ) || 'POST' !== $request->get_method() || ! is_user_logged_in() ) {
+        return $response;
+    }
+
+    $data = $response instanceof WP_REST_Response ? $response->get_data() : array();
+    $record = array(
+        'time'           => current_time( 'mysql' ),
+        'route'          => $request->get_route(),
+        'requested_name' => sanitize_text_field( (string) $request->get_param( 'name' ) ),
+        'parent'         => (int) $request->get_param( 'parent' ),
+        'status'         => $response instanceof WP_REST_Response ? $response->get_status() : 0,
+        'response_code'  => is_array( $data ) && isset( $data['code'] ) ? (string) $data['code'] : '',
+        'response_name'  => is_array( $data ) && isset( $data['name'] ) ? (string) $data['name'] : '',
+        'response_id'    => is_array( $data ) && isset( $data['id'] ) ? (int) $data['id'] : 0,
+    );
+
+    update_user_meta( get_current_user_id(), '_cd_last_location_term_create', wp_json_encode( $record ) );
+    return $response;
+}
+add_filter( 'rest_request_after_callbacks', 'cd_record_location_taxonomy_create_attempt', 100, 3 );
 
 function cd_register_taxonomies() {
     register_taxonomy(
@@ -313,6 +370,7 @@ function cd_get_admin_debug_data( $post_id = null ) {
             'chess_country' => cd_get_taxonomy_debug_data( 'chess_country' ),
             'chess_state'   => cd_get_taxonomy_debug_data( 'chess_state' ),
         ),
+        'last_location_term_create_attempt' => (string) get_user_meta( $user->ID, '_cd_last_location_term_create', true ),
         'featured_image' => cd_get_featured_image_debug_data( $post_id ),
     );
 }
