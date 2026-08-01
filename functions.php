@@ -4,7 +4,7 @@
  * Updates: SEO Taxonomy Slug changed to 'chess-in'
  */
 if (!defined('ABSPATH')) exit;
-define('CD_VERSION', '2.1.10');
+define('CD_VERSION', '2.1.11');
 define('CD_DIR', get_template_directory());
 define('CD_URI', get_template_directory_uri());
 
@@ -69,46 +69,12 @@ add_action('init', 'cd_register_cpts');
 /* ── TAXONOMIES: STATES & COUNTRIES ── */
 function cd_get_location_taxonomy_caps() {
     return array(
-        'manage_terms' => 'cd_manage_location_terms',
-        'edit_terms'   => 'cd_edit_location_terms',
+        'manage_terms' => 'edit_posts',
+        'edit_terms'   => 'edit_posts',
         'delete_terms' => 'manage_categories',
-        'assign_terms' => 'cd_assign_location_terms',
+        'assign_terms' => 'edit_posts',
     );
 }
-
-function cd_grant_location_taxonomy_caps() {
-    $roles = wp_roles();
-    if ( ! $roles || empty( $roles->roles ) ) return;
-
-    $caps = array(
-        'cd_manage_location_terms',
-        'cd_edit_location_terms',
-        'cd_assign_location_terms',
-    );
-
-    foreach ( array_keys( $roles->roles ) as $role_name ) {
-        $role = get_role( $role_name );
-        if ( ! $role || empty( $role->capabilities['edit_posts'] ) ) continue;
-
-        foreach ( $caps as $cap ) {
-            $role->add_cap( $cap );
-        }
-    }
-}
-add_action( 'init', 'cd_grant_location_taxonomy_caps', 20 );
-
-function cd_allow_location_taxonomy_caps( $allcaps ) {
-    if ( empty( $allcaps['edit_posts'] ) && empty( $allcaps['publish_posts'] ) && empty( $allcaps['manage_categories'] ) ) {
-        return $allcaps;
-    }
-
-    $allcaps['cd_manage_location_terms'] = true;
-    $allcaps['cd_edit_location_terms']   = true;
-    $allcaps['cd_assign_location_terms'] = true;
-
-    return $allcaps;
-}
-add_filter( 'user_has_cap', 'cd_allow_location_taxonomy_caps' );
 
 function cd_get_location_taxonomy_labels( $singular, $plural ) {
     return array(
@@ -183,6 +149,239 @@ function cd_register_taxonomies() {
     );
 }
 add_action('init', 'cd_register_taxonomies');
+
+function cd_is_editor_debug_request() {
+    return is_admin()
+        && current_user_can( 'edit_posts' )
+        && isset( $_GET['cd_debug'] )
+        && '0' !== (string) $_GET['cd_debug'];
+}
+
+function cd_debug_yes_no( $value ) {
+    return $value ? 'yes' : 'no';
+}
+
+function cd_get_debug_post_id() {
+    $post_id = 0;
+
+    if ( isset( $_GET['post'] ) ) {
+        $post_id = (int) $_GET['post'];
+    } elseif ( isset( $_GET['post_ID'] ) ) {
+        $post_id = (int) $_GET['post_ID'];
+    } elseif ( isset( $_POST['post_ID'] ) ) {
+        $post_id = (int) $_POST['post_ID'];
+    }
+
+    return $post_id > 0 ? $post_id : 0;
+}
+
+function cd_get_taxonomy_debug_data( $taxonomy ) {
+    $tax = get_taxonomy( $taxonomy );
+    if ( ! $tax ) {
+        return array(
+            'taxonomy' => $taxonomy,
+            'exists'   => false,
+        );
+    }
+
+    $caps = (array) $tax->cap;
+    $cap_checks = array();
+
+    foreach ( array( 'manage_terms', 'edit_terms', 'delete_terms', 'assign_terms' ) as $cap_key ) {
+        $cap = isset( $caps[ $cap_key ] ) ? (string) $caps[ $cap_key ] : '';
+        $cap_checks[ $cap_key ] = array(
+            'capability' => $cap,
+            'allowed'    => $cap ? cd_debug_yes_no( current_user_can( $cap ) ) : 'no capability set',
+        );
+    }
+
+    $terms = get_terms( array(
+        'taxonomy'   => $taxonomy,
+        'hide_empty' => false,
+        'number'     => 12,
+        'orderby'    => 'name',
+        'order'      => 'ASC',
+    ) );
+
+    $term_samples = array();
+    if ( ! is_wp_error( $terms ) ) {
+        foreach ( $terms as $term ) {
+            $term_samples[] = array(
+                'id'     => (int) $term->term_id,
+                'name'   => (string) $term->name,
+                'slug'   => (string) $term->slug,
+                'parent' => (int) $term->parent,
+                'count'  => (int) $term->count,
+            );
+        }
+    }
+
+    return array(
+        'taxonomy'             => $taxonomy,
+        'exists'               => true,
+        'object_type'          => array_values( (array) $tax->object_type ),
+        'hierarchical'         => cd_debug_yes_no( $tax->hierarchical ),
+        'show_ui'              => cd_debug_yes_no( $tax->show_ui ),
+        'show_in_rest'         => cd_debug_yes_no( $tax->show_in_rest ),
+        'rest_base'            => (string) $tax->rest_base,
+        'rest_controller'      => (string) $tax->rest_controller_class,
+        'capability_checks'    => $cap_checks,
+        'rest_terms_url'       => rest_url( 'wp/v2/' . $tax->rest_base ),
+        'first_terms_or_error' => is_wp_error( $terms ) ? $terms->get_error_message() : $term_samples,
+    );
+}
+
+function cd_get_featured_image_debug_data( $post_id ) {
+    if ( ! $post_id ) {
+        return array( 'post_id' => 0, 'message' => 'No post ID found in the current editor URL.' );
+    }
+
+    $thumb_id = (int) get_post_thumbnail_id( $post_id );
+    $attachment = $thumb_id ? get_post( $thumb_id ) : null;
+    $post_type = get_post_type( $post_id );
+
+    $data = array(
+        'post_id'                      => (int) $post_id,
+        'post_type'                    => (string) $post_type,
+        'post_type_supports_thumbnail' => $post_type ? cd_debug_yes_no( post_type_supports( $post_type, 'thumbnail' ) ) : 'unknown post type',
+        'raw_thumbnail_meta'           => (string) get_post_meta( $post_id, '_thumbnail_id', true ),
+        'get_post_thumbnail_id'        => $thumb_id,
+        'attachment_exists'            => cd_debug_yes_no( (bool) $attachment ),
+        'featured_cd_hero_url'         => cd_get_featured_image_url( $post_id, 'cd-hero' ),
+        'featured_cd_card_url'         => cd_get_featured_image_url( $post_id, 'cd-card' ),
+        'featured_full_url'            => cd_get_featured_image_url( $post_id, 'full' ),
+        'theme_home_hero_url'          => cd_get_post_image_url( $post_id, 'cd-hero' ),
+        'theme_card_url'               => cd_get_post_image_url( $post_id, 'cd-card' ),
+        'theme_onerror_fallback_url'   => cd_get_post_image_fallback_url( $post_id, cd_get_post_image_url( $post_id, 'cd-card' ) ),
+        'first_attached_image_url'     => cd_get_attached_image_url( $post_id, 'full' ),
+        'first_content_image_url'      => cd_get_first_content_image_url( $post_id ),
+    );
+
+    if ( $attachment ) {
+        $data['attachment'] = array(
+            'id'        => (int) $attachment->ID,
+            'title'     => (string) get_the_title( $attachment ),
+            'status'    => (string) $attachment->post_status,
+            'mime_type' => (string) $attachment->post_mime_type,
+            'parent'    => (int) $attachment->post_parent,
+            'edit_link' => get_edit_post_link( $attachment->ID, 'raw' ),
+        );
+    }
+
+    return $data;
+}
+
+function cd_render_editor_debug_panel() {
+    if ( ! cd_is_editor_debug_request() ) return;
+
+    $user = wp_get_current_user();
+    $post_id = cd_get_debug_post_id();
+    $screen = function_exists( 'get_current_screen' ) ? get_current_screen() : null;
+
+    $debug = array(
+        'theme_version' => CD_VERSION,
+        'screen'        => $screen ? array(
+            'id'        => (string) $screen->id,
+            'base'      => (string) $screen->base,
+            'post_type' => (string) $screen->post_type,
+        ) : 'screen not available',
+        'current_user'  => array(
+            'id'    => (int) $user->ID,
+            'roles' => array_values( (array) $user->roles ),
+            'can'   => array(
+                'edit_posts'        => cd_debug_yes_no( current_user_can( 'edit_posts' ) ),
+                'publish_posts'     => cd_debug_yes_no( current_user_can( 'publish_posts' ) ),
+                'manage_categories' => cd_debug_yes_no( current_user_can( 'manage_categories' ) ),
+                'upload_files'      => cd_debug_yes_no( current_user_can( 'upload_files' ) ),
+            ),
+        ),
+        'taxonomies'     => array(
+            'chess_country' => cd_get_taxonomy_debug_data( 'chess_country' ),
+            'chess_state'   => cd_get_taxonomy_debug_data( 'chess_state' ),
+        ),
+        'featured_image' => cd_get_featured_image_debug_data( $post_id ),
+    );
+
+    echo '<div class="notice notice-info" style="padding:12px 14px;">';
+    echo '<h2 style="margin:0 0 8px;">Checkmate Daily Debug</h2>';
+    echo '<p style="margin:0 0 8px;">Copy this full block and send it back if Countries, States, or Featured Image still fail.</p>';
+    echo '<textarea readonly style="width:100%;min-height:360px;font-family:monospace;font-size:12px;">';
+    echo esc_textarea( wp_json_encode( $debug, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES ) );
+    echo '</textarea>';
+    echo '</div>';
+}
+add_action( 'admin_notices', 'cd_render_editor_debug_panel' );
+
+function cd_render_editor_js_error_debugger() {
+    if ( ! cd_is_editor_debug_request() ) return;
+    ?>
+    <script>
+    (function () {
+      function showCdDebugError(message) {
+        var box = document.createElement('div');
+        box.className = 'notice notice-error';
+        box.style.padding = '12px 14px';
+        box.innerHTML = '<p><strong>Checkmate Daily JS error:</strong> ' + String(message).replace(/[<>&]/g, function (c) {
+          return {'<':'&lt;','>':'&gt;','&':'&amp;'}[c];
+        }) + '</p>';
+        var target = document.querySelector('.wrap') || document.body;
+        target.insertBefore(box, target.firstChild);
+      }
+      window.addEventListener('error', function (event) {
+        showCdDebugError(event.message || 'Unknown browser error');
+      });
+      window.addEventListener('unhandledrejection', function (event) {
+        var reason = event.reason && (event.reason.message || event.reason);
+        showCdDebugError(reason || 'Unhandled promise rejection');
+      });
+    }());
+    </script>
+    <?php
+}
+add_action( 'admin_footer', 'cd_render_editor_js_error_debugger' );
+
+function cd_is_frontend_debug_request() {
+    return ! is_admin()
+        && current_user_can( 'edit_posts' )
+        && isset( $_GET['cd_debug'] )
+        && '0' !== (string) $_GET['cd_debug'];
+}
+
+function cd_render_frontend_image_debug_panel() {
+    if ( ! cd_is_frontend_debug_request() ) return;
+
+    $posts = get_posts( array(
+        'post_type'      => 'post',
+        'post_status'    => 'publish',
+        'posts_per_page' => 8,
+    ) );
+
+    $debug = array(
+        'theme_version' => CD_VERSION,
+        'page'          => array(
+            'is_front_page' => cd_debug_yes_no( is_front_page() ),
+            'is_home'       => cd_debug_yes_no( is_home() ),
+            'request_uri'   => isset( $_SERVER['REQUEST_URI'] ) ? sanitize_text_field( wp_unslash( $_SERVER['REQUEST_URI'] ) ) : '',
+        ),
+        'posts'         => array(),
+    );
+
+    foreach ( $posts as $post ) {
+        $debug['posts'][] = array(
+            'title'          => get_the_title( $post ),
+            'permalink'      => get_permalink( $post ),
+            'image_decision' => cd_get_featured_image_debug_data( $post->ID ),
+        );
+    }
+
+    echo '<div style="position:fixed;z-index:999999;left:16px;right:16px;bottom:16px;max-height:55vh;overflow:auto;background:#111;color:#fff;border:2px solid #168ccf;border-radius:4px;padding:14px;box-shadow:0 8px 30px rgba(0,0,0,.35);">';
+    echo '<strong style="display:block;margin-bottom:8px;">Checkmate Daily Image Debug</strong>';
+    echo '<textarea readonly style="width:100%;min-height:260px;font-family:monospace;font-size:12px;color:#111;">';
+    echo esc_textarea( wp_json_encode( $debug, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES ) );
+    echo '</textarea>';
+    echo '</div>';
+}
+add_action( 'wp_footer', 'cd_render_frontend_image_debug_panel', 100 );
 
 /* ── GET ALL CATEGORIES DYNAMICALLY ── */
 function cd_get_all_chess_categories() {
