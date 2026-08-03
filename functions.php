@@ -4,7 +4,7 @@
  * Updates: SEO Taxonomy Slug changed to 'chess-in'
  */
 if (!defined('ABSPATH')) exit;
-define('CD_VERSION', '2.1.19');
+define('CD_VERSION', '2.1.20');
 define('CD_DIR', get_template_directory());
 define('CD_URI', get_template_directory_uri());
 
@@ -785,10 +785,11 @@ function cd_enqueue_featured_image_editor_guard() {
     }
 
     $config = array(
-        'ajaxurl'       => admin_url( 'admin-ajax.php' ),
+        /* Relative URLs stay on the editor's current host/scheme after migration. */
+        'ajaxurl'       => admin_url( 'admin-ajax.php', 'relative' ),
         'nonce'         => wp_create_nonce( 'cd_featured_image_guard' ),
         'locationNonce' => wp_create_nonce( 'cd_location_term_guard' ),
-        'restFallback'  => home_url( '/?rest_route=' ),
+        'restFallback'  => home_url( '/?rest_route=', 'relative' ),
     );
 
     $script = 'window.cdFeaturedImageGuard=' . wp_json_encode( $config ) . ';
@@ -801,6 +802,7 @@ function cd_enqueue_featured_image_editor_guard() {
     var hasInitialized = false;
     var suppressZeroUntil = 0;
     var timer = null;
+    var retryTimer = null;
 
     function getEditor() {
         return wp.data.select("core/editor");
@@ -820,14 +822,7 @@ function cd_enqueue_featured_image_editor_guard() {
         return isNaN(value) ? null : value;
     }
 
-    function sendFeaturedMedia(source) {
-        var postId = getPostId();
-        var mediaId = getFeaturedMedia();
-        if (!postId || mediaId === null) return;
-        if (mediaId <= 0 && source === "after_save") return;
-        if (mediaId === lastSent && source !== "after_save") return;
-
-        lastSent = mediaId;
+    function persistFeaturedMedia(postId, mediaId, source, attempt) {
         var body = new window.URLSearchParams();
         body.set("action", "cd_set_featured_image");
         body.set("nonce", config.nonce);
@@ -840,7 +835,33 @@ function cd_enqueue_featured_image_editor_guard() {
             credentials: "same-origin",
             headers: { "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8" },
             body: body.toString()
-        }).catch(function(){});
+        }).then(function(response){
+            if (!response.ok) throw new Error("Featured image save returned HTTP " + response.status);
+            return response.json();
+        }).then(function(payload){
+            var storedId = payload && payload.data ? parseInt(payload.data.stored_id, 10) || 0 : -1;
+            if (!payload || !payload.success || storedId !== mediaId) {
+                throw new Error("Featured image save was not confirmed");
+            }
+        }).catch(function(){
+            if (attempt >= 2) return;
+            window.clearTimeout(retryTimer);
+            retryTimer = window.setTimeout(function(){
+                persistFeaturedMedia(postId, mediaId, source + "_retry", attempt + 1);
+            }, 700 * (attempt + 1));
+        });
+    }
+
+    function sendFeaturedMedia(source) {
+        var postId = getPostId();
+        var mediaId = getFeaturedMedia();
+        if (!postId || mediaId === null) return;
+        if (mediaId <= 0 && source === "after_save") return;
+        if (mediaId === lastSent && source !== "after_save") return;
+
+        lastSent = mediaId;
+        window.clearTimeout(retryTimer);
+        persistFeaturedMedia(postId, mediaId, source, 0);
     }
 
     function scheduleSend(source) {
