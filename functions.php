@@ -4,7 +4,7 @@
  * Updates: SEO Taxonomy Slug changed to 'chess-in'
  */
 if (!defined('ABSPATH')) exit;
-define('CD_VERSION', '2.1.20');
+define('CD_VERSION', '2.1.21');
 define('CD_DIR', get_template_directory());
 define('CD_URI', get_template_directory_uri());
 
@@ -579,6 +579,45 @@ function cd_is_valid_image_attachment( $attachment_id ) {
         && 0 === strpos( (string) $attachment->post_mime_type, 'image/' );
 }
 
+/*
+ * Capture the editor's selection before the post controller runs. This keeps
+ * the image even when another save callback fails before rest_after_insert_post.
+ */
+function cd_capture_featured_media_before_rest_save( $response, $handler, $request ) {
+    if ( ! $request instanceof WP_REST_Request || ! is_user_logged_in() ) return $response;
+    if ( ! in_array( $request->get_method(), array( 'POST', 'PUT', 'PATCH' ), true ) ) return $response;
+    if ( ! preg_match( '#^/wp/v2/posts/(\d+)$#', $request->get_route(), $matches ) ) return $response;
+    if ( ! $request->offsetExists( 'featured_media' ) ) return $response;
+
+    $post_id = (int) $matches[1];
+    $attachment_id = (int) $request->get_param( 'featured_media' );
+
+    /* Zero can be a transient Gutenberg reset; explicit removal uses AJAX below. */
+    if ( $attachment_id > 0 && current_user_can( 'edit_post', $post_id ) ) {
+        cd_apply_featured_image_value( $post_id, $attachment_id, 'rest_request_before_callbacks' );
+    }
+
+    return $response;
+}
+add_filter( 'rest_request_before_callbacks', 'cd_capture_featured_media_before_rest_save', 1, 3 );
+
+/*
+ * Once selected, do not let a later plugin/core callback erase the thumbnail.
+ * cd_apply_featured_image_value sets the temporary allow flag for a real remove.
+ */
+function cd_protect_selected_featured_image_meta( $delete, $post_id, $meta_key, $meta_value, $delete_all ) {
+    if ( '_thumbnail_id' !== $meta_key || 'post' !== get_post_type( $post_id ) ) return $delete;
+    if ( ! empty( $GLOBALS['cd_allow_featured_image_delete'] ) && (int) $GLOBALS['cd_allow_featured_image_delete'] === (int) $post_id ) {
+        return $delete;
+    }
+
+    $guard_id = (int) get_post_meta( $post_id, '_cd_featured_image_guard_id', true );
+    if ( $guard_id > 0 && cd_is_valid_image_attachment( $guard_id ) ) return false;
+
+    return $delete;
+}
+add_filter( 'delete_post_metadata', 'cd_protect_selected_featured_image_meta', 100, 5 );
+
 /* The guard ID is the last image explicitly selected in the editor. */
 function cd_get_selected_featured_image_id( $post_id ) {
     $post_id = (int) $post_id;
@@ -680,7 +719,9 @@ function cd_apply_featured_image_value( $post_id, $attachment_id, $source = 'unk
     }
 
     if ( $attachment_id <= 0 ) {
+        $GLOBALS['cd_allow_featured_image_delete'] = $post_id;
         delete_post_thumbnail( $post_id );
+        unset( $GLOBALS['cd_allow_featured_image_delete'] );
         delete_post_meta( $post_id, '_cd_featured_image_guard_id' );
         update_post_meta( $post_id, '_cd_featured_image_last_save', wp_json_encode( array(
             'source'        => $source,
@@ -776,7 +817,6 @@ add_action( 'wp_ajax_cd_set_featured_image', 'cd_ajax_set_featured_image' );
 function cd_enqueue_featured_image_editor_guard() {
     $screen = function_exists( 'get_current_screen' ) ? get_current_screen() : null;
     if ( ! $screen || 'post' !== $screen->post_type || 'post' !== $screen->base ) return;
-    if ( ! wp_script_is( 'wp-edit-post', 'registered' ) ) return;
 
     $post_id  = isset( $_GET['post'] ) ? (int) $_GET['post'] : 0;
     $thumb_id = $post_id ? (int) get_post_thumbnail_id( $post_id ) : 0;
@@ -965,7 +1005,14 @@ function cd_enqueue_featured_image_editor_guard() {
     });
 }(window.wp, window.cdFeaturedImageGuard));';
 
-    wp_add_inline_script( 'wp-edit-post', $script, 'after' );
+    wp_enqueue_script(
+        'cd-editor-guard',
+        CD_URI . '/assets/js/editor-guard.js',
+        array( 'wp-data', 'wp-api-fetch', 'wp-edit-post' ),
+        CD_VERSION,
+        true
+    );
+    wp_localize_script( 'cd-editor-guard', 'cdFeaturedImageGuard', $config );
 }
 add_action( 'enqueue_block_editor_assets', 'cd_enqueue_featured_image_editor_guard' );
 
