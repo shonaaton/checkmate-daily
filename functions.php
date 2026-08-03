@@ -4,7 +4,7 @@
  * Updates: SEO Taxonomy Slug changed to 'chess-in'
  */
 if (!defined('ABSPATH')) exit;
-define('CD_VERSION', '2.1.21');
+define('CD_VERSION', '2.1.22');
 define('CD_DIR', get_template_directory());
 define('CD_URI', get_template_directory_uri());
 
@@ -427,6 +427,8 @@ function cd_get_featured_image_debug_data( $post_id ) {
         'post_type_supports_thumbnail' => $post_type ? cd_debug_yes_no( post_type_supports( $post_type, 'thumbnail' ) ) : 'unknown post type',
         'raw_thumbnail_meta'           => (string) get_post_meta( $post_id, '_thumbnail_id', true ),
         'featured_image_guard_id'      => (string) get_post_meta( $post_id, '_cd_featured_image_guard_id', true ),
+        'featured_image_registry_id'   => (string) cd_get_featured_image_registry_id( $post_id ),
+        'featured_image_delete_audit'  => (string) get_option( 'cd_featured_image_delete_audit_' . (int) $post_id, '' ),
         'last_featured_save_attempt'   => (string) get_post_meta( $post_id, '_cd_featured_image_last_save', true ),
         'get_post_thumbnail_id'        => $thumb_id,
         'attachment_exists'            => cd_debug_yes_no( (bool) $attachment ),
@@ -579,6 +581,27 @@ function cd_is_valid_image_attachment( $attachment_id ) {
         && 0 === strpos( (string) $attachment->post_mime_type, 'image/' );
 }
 
+function cd_get_featured_image_registry_option( $post_id ) {
+    return 'cd_featured_image_' . (int) $post_id;
+}
+
+function cd_get_featured_image_registry_id( $post_id ) {
+    $post_id = (int) $post_id;
+    return $post_id > 0 ? (int) get_option( cd_get_featured_image_registry_option( $post_id ), 0 ) : 0;
+}
+
+function cd_store_featured_image_registry_id( $post_id, $attachment_id ) {
+    $post_id = (int) $post_id;
+    $attachment_id = (int) $attachment_id;
+    if ( $post_id <= 0 ) return false;
+
+    if ( $attachment_id <= 0 ) {
+        return delete_option( cd_get_featured_image_registry_option( $post_id ) );
+    }
+
+    return update_option( cd_get_featured_image_registry_option( $post_id ), $attachment_id, false );
+}
+
 /*
  * Capture the editor's selection before the post controller runs. This keeps
  * the image even when another save callback fails before rest_after_insert_post.
@@ -612,7 +635,20 @@ function cd_protect_selected_featured_image_meta( $delete, $post_id, $meta_key, 
     }
 
     $guard_id = (int) get_post_meta( $post_id, '_cd_featured_image_guard_id', true );
-    if ( $guard_id > 0 && cd_is_valid_image_attachment( $guard_id ) ) return false;
+    $registry_id = cd_get_featured_image_registry_id( $post_id );
+    $protected_id = $guard_id > 0 ? $guard_id : $registry_id;
+
+    if ( $protected_id > 0 && cd_is_valid_image_attachment( $protected_id ) ) {
+        update_option( 'cd_featured_image_delete_audit_' . (int) $post_id, wp_json_encode( array(
+            'time'        => current_time( 'mysql' ),
+            'request_uri' => isset( $_SERVER['REQUEST_URI'] ) ? sanitize_text_field( wp_unslash( $_SERVER['REQUEST_URI'] ) ) : '',
+            'user_id'     => get_current_user_id(),
+            'doing_cron'  => function_exists( 'wp_doing_cron' ) && wp_doing_cron(),
+            'doing_ajax'  => function_exists( 'wp_doing_ajax' ) && wp_doing_ajax(),
+            'backtrace'   => function_exists( 'wp_debug_backtrace_summary' ) ? wp_debug_backtrace_summary() : '',
+        ) ), false );
+        return false;
+    }
 
     return $delete;
 }
@@ -625,11 +661,22 @@ function cd_get_selected_featured_image_id( $post_id ) {
 
     $thumbnail_id = (int) get_post_thumbnail_id( $post_id );
     if ( $thumbnail_id > 0 && cd_is_valid_image_attachment( $thumbnail_id ) ) {
+        if ( cd_get_featured_image_registry_id( $post_id ) !== $thumbnail_id ) {
+            cd_store_featured_image_registry_id( $post_id, $thumbnail_id );
+        }
         return $thumbnail_id;
     }
 
     $guard_id = (int) get_post_meta( $post_id, '_cd_featured_image_guard_id', true );
-    return $guard_id > 0 && cd_is_valid_image_attachment( $guard_id ) ? $guard_id : 0;
+    if ( $guard_id > 0 && cd_is_valid_image_attachment( $guard_id ) ) {
+        if ( cd_get_featured_image_registry_id( $post_id ) !== $guard_id ) {
+            cd_store_featured_image_registry_id( $post_id, $guard_id );
+        }
+        return $guard_id;
+    }
+
+    $registry_id = cd_get_featured_image_registry_id( $post_id );
+    return $registry_id > 0 && cd_is_valid_image_attachment( $registry_id ) ? $registry_id : 0;
 }
 
 /* Let WordPress and SEO plugins see the guarded selection as the thumbnail ID. */
@@ -640,7 +687,11 @@ function cd_restore_guarded_thumbnail_id( $thumbnail_id, $post ) {
     $post_id = $post instanceof WP_Post ? $post->ID : (int) $post;
     $guard_id = $post_id ? (int) get_post_meta( $post_id, '_cd_featured_image_guard_id', true ) : 0;
 
-    return $guard_id > 0 && cd_is_valid_image_attachment( $guard_id ) ? $guard_id : $thumbnail_id;
+    if ( $guard_id > 0 && cd_is_valid_image_attachment( $guard_id ) ) return $guard_id;
+
+    $registry_id = $post_id ? cd_get_featured_image_registry_id( $post_id ) : 0;
+
+    return $registry_id > 0 && cd_is_valid_image_attachment( $registry_id ) ? $registry_id : $thumbnail_id;
 }
 add_filter( 'post_thumbnail_id', 'cd_restore_guarded_thumbnail_id', 100, 2 );
 
@@ -723,6 +774,8 @@ function cd_apply_featured_image_value( $post_id, $attachment_id, $source = 'unk
         delete_post_thumbnail( $post_id );
         unset( $GLOBALS['cd_allow_featured_image_delete'] );
         delete_post_meta( $post_id, '_cd_featured_image_guard_id' );
+        cd_store_featured_image_registry_id( $post_id, 0 );
+        delete_option( 'cd_featured_image_delete_audit_' . $post_id );
         update_post_meta( $post_id, '_cd_featured_image_last_save', wp_json_encode( array(
             'source'        => $source,
             'action'        => 'deleted',
@@ -746,6 +799,7 @@ function cd_apply_featured_image_value( $post_id, $attachment_id, $source = 'unk
     $set_post_thumbnail_result = set_post_thumbnail( $post_id, $attachment_id );
     $direct_meta_result        = update_post_meta( $post_id, '_thumbnail_id', $attachment_id );
     update_post_meta( $post_id, '_cd_featured_image_guard_id', $attachment_id );
+    cd_store_featured_image_registry_id( $post_id, $attachment_id );
     clean_post_cache( $post_id );
 
     update_post_meta( $post_id, '_cd_featured_image_last_save', wp_json_encode( array(
