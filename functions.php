@@ -4,7 +4,7 @@
  * Updates: SEO Taxonomy Slug changed to 'chess-in'
  */
 if (!defined('ABSPATH')) exit;
-define('CD_VERSION', '2.1.18');
+define('CD_VERSION', '2.1.19');
 define('CD_DIR', get_template_directory());
 define('CD_URI', get_template_directory_uri());
 
@@ -192,6 +192,53 @@ function cd_record_location_taxonomy_create_attempt( $response, $handler, $reque
     return $response;
 }
 add_filter( 'rest_request_after_callbacks', 'cd_record_location_taxonomy_create_attempt', 100, 3 );
+
+/*
+ * Keep authenticated editor writes valid JSON. Some hosts print PHP notices or
+ * other stray output during a REST save; Gutenberg then rejects the otherwise
+ * successful response and rolls unsaved editor/SEO state back in the UI.
+ */
+function cd_buffer_editor_rest_write_output( $result, $server, $request ) {
+    if ( ! $request instanceof WP_REST_Request || ! is_user_logged_in() ) return $result;
+    if ( ! in_array( $request->get_method(), array( 'POST', 'PUT', 'PATCH' ), true ) ) return $result;
+    if ( ! preg_match( '#^/wp/v2/posts(?:/\d+)?$#', $request->get_route() ) ) return $result;
+
+    $GLOBALS['cd_editor_rest_buffer_level'] = ob_get_level();
+    ob_start();
+
+    @ini_set( 'display_errors', '0' );
+    @ini_set( 'html_errors', '0' );
+
+    return $result;
+}
+add_filter( 'rest_pre_dispatch', 'cd_buffer_editor_rest_write_output', -1000, 3 );
+
+function cd_discard_editor_rest_write_output( $served, $result, $request, $server ) {
+    if ( ! isset( $GLOBALS['cd_editor_rest_buffer_level'] ) ) return $served;
+
+    $base_level = (int) $GLOBALS['cd_editor_rest_buffer_level'];
+    $stray_output = '';
+
+    if ( $served ) {
+        while ( ob_get_level() > $base_level ) ob_end_flush();
+        unset( $GLOBALS['cd_editor_rest_buffer_level'] );
+        return $served;
+    }
+
+    while ( ob_get_level() > $base_level ) {
+        $chunk = ob_get_clean();
+        if ( false !== $chunk ) $stray_output = $chunk . $stray_output;
+    }
+
+    unset( $GLOBALS['cd_editor_rest_buffer_level'] );
+
+    if ( '' !== trim( $stray_output ) && defined( 'WP_DEBUG_LOG' ) && WP_DEBUG_LOG ) {
+        error_log( 'Checkmate Daily suppressed invalid REST output: ' . wp_strip_all_tags( substr( $stray_output, 0, 2000 ) ) );
+    }
+
+    return $served;
+}
+add_filter( 'rest_pre_serve_request', 'cd_discard_editor_rest_write_output', PHP_INT_MAX, 4 );
 
 function cd_get_location_term_editor_data( $term ) {
     $link = get_term_link( $term );
@@ -532,6 +579,49 @@ function cd_is_valid_image_attachment( $attachment_id ) {
         && 0 === strpos( (string) $attachment->post_mime_type, 'image/' );
 }
 
+/* The guard ID is the last image explicitly selected in the editor. */
+function cd_get_selected_featured_image_id( $post_id ) {
+    $post_id = (int) $post_id;
+    if ( $post_id <= 0 ) return 0;
+
+    $thumbnail_id = (int) get_post_thumbnail_id( $post_id );
+    if ( $thumbnail_id > 0 && cd_is_valid_image_attachment( $thumbnail_id ) ) {
+        return $thumbnail_id;
+    }
+
+    $guard_id = (int) get_post_meta( $post_id, '_cd_featured_image_guard_id', true );
+    return $guard_id > 0 && cd_is_valid_image_attachment( $guard_id ) ? $guard_id : 0;
+}
+
+/* Let WordPress and SEO plugins see the guarded selection as the thumbnail ID. */
+function cd_restore_guarded_thumbnail_id( $thumbnail_id, $post ) {
+    $thumbnail_id = (int) $thumbnail_id;
+    if ( $thumbnail_id > 0 && cd_is_valid_image_attachment( $thumbnail_id ) ) return $thumbnail_id;
+
+    $post_id = $post instanceof WP_Post ? $post->ID : (int) $post;
+    $guard_id = $post_id ? (int) get_post_meta( $post_id, '_cd_featured_image_guard_id', true ) : 0;
+
+    return $guard_id > 0 && cd_is_valid_image_attachment( $guard_id ) ? $guard_id : $thumbnail_id;
+}
+add_filter( 'post_thumbnail_id', 'cd_restore_guarded_thumbnail_id', 100, 2 );
+
+/* Return the guarded selection to Gutenberg if migrated thumbnail meta vanished. */
+function cd_restore_featured_media_in_rest_response( $response, $post, $request ) {
+    if ( ! $response instanceof WP_REST_Response || ! $post instanceof WP_Post ) return $response;
+
+    $data = $response->get_data();
+    if ( ! is_array( $data ) || ! empty( $data['featured_media'] ) ) return $response;
+
+    $featured_id = cd_get_selected_featured_image_id( $post->ID );
+    if ( $featured_id > 0 ) {
+        $data['featured_media'] = $featured_id;
+        $response->set_data( $data );
+    }
+
+    return $response;
+}
+add_filter( 'rest_prepare_post', 'cd_restore_featured_media_in_rest_response', 100, 3 );
+
 /* Recover image records imported without WordPress attachment metadata. */
 function cd_get_attachment_original_url( $attachment_id ) {
     $attachment_id = (int) $attachment_id;
@@ -698,6 +788,7 @@ function cd_enqueue_featured_image_editor_guard() {
         'ajaxurl'       => admin_url( 'admin-ajax.php' ),
         'nonce'         => wp_create_nonce( 'cd_featured_image_guard' ),
         'locationNonce' => wp_create_nonce( 'cd_location_term_guard' ),
+        'restFallback'  => home_url( '/?rest_route=' ),
     );
 
     $script = 'window.cdFeaturedImageGuard=' . wp_json_encode( $config ) . ';
@@ -776,6 +867,40 @@ function cd_enqueue_featured_image_editor_guard() {
             scheduleSend("after_save");
         }
         wasSaving = isSaving;
+    });
+}(window.wp, window.cdFeaturedImageGuard));
+(function(wp, config){
+    if (!wp || !wp.apiFetch || !wp.apiFetch.use || !config || !config.restFallback) return;
+
+    function isPostWrite(options) {
+        var method = String((options && options.method) || "GET").toUpperCase();
+        var path = String((options && options.path) || "");
+        return (method === "POST" || method === "PUT" || method === "PATCH")
+            && /^\/wp\/v2\/posts\/\d+(?:\?.*)?$/.test(path);
+    }
+
+    function shouldRetry(error) {
+        if (!error) return true;
+        if (!error.code) return true;
+        return error.code === "invalid_json" || error.code === "http_request_failed";
+    }
+
+    function fallbackOptions(options) {
+        var retry = Object.assign({}, options);
+        var parts = String(options.path || "").split("?");
+        retry.url = config.restFallback + encodeURIComponent(parts.shift());
+        if (parts.length) retry.url += "&" + parts.join("?");
+        delete retry.path;
+        return retry;
+    }
+
+    wp.apiFetch.use(function(options, next){
+        if (!isPostWrite(options)) return next(options);
+
+        return Promise.resolve(next(options)).catch(function(error){
+            if (!shouldRetry(error)) throw error;
+            return next(fallbackOptions(options));
+        });
     });
 }(window.wp, window.cdFeaturedImageGuard));
 (function(wp, config){
@@ -929,7 +1054,7 @@ function cd_fallback_missing_intermediate_image( $downsize, $attachment_id, $siz
 add_filter( 'image_downsize', 'cd_fallback_missing_intermediate_image', 10, 3 );
 
 function cd_get_featured_image_url( $post_id, $size = 'full' ) {
-    $thumb_id = get_post_thumbnail_id( $post_id );
+    $thumb_id = cd_get_selected_featured_image_id( $post_id );
     if ( ! $thumb_id ) return '';
 
     $url = wp_get_attachment_image_url( $thumb_id, $size );
@@ -945,7 +1070,7 @@ function cd_get_featured_image_url( $post_id, $size = 'full' ) {
 }
 
 function cd_has_featured_image( $post_id ) {
-    return (bool) get_post_thumbnail_id( $post_id );
+    return (bool) cd_get_selected_featured_image_id( $post_id );
 }
 
 function cd_get_attached_image_url( $post_id, $size = 'full' ) {
@@ -1010,31 +1135,13 @@ function cd_get_first_content_image_url( $post_id ) {
 }
 
 function cd_get_post_image_url( $post_id, $size = 'full' ) {
-    if ( cd_has_featured_image( $post_id ) ) {
-        $candidates = array(
-            cd_get_featured_image_url( $post_id, $size ),
-        );
-
-        if ( 'full' !== $size ) {
-            $candidates[] = cd_get_featured_image_url( $post_id, 'full' );
-        }
-
-        foreach ( $candidates as $url ) {
-            if ( $url ) return cd_normalize_upload_url( $url );
-        }
-
-        return '';
-    }
-
     $candidates = array(
-        cd_get_attached_image_url( $post_id, $size ),
+        cd_get_featured_image_url( $post_id, $size ),
     );
 
     if ( 'full' !== $size ) {
-        $candidates[] = cd_get_attached_image_url( $post_id, 'full' );
+        $candidates[] = cd_get_featured_image_url( $post_id, 'full' );
     }
-
-    $candidates[] = cd_get_first_content_image_url( $post_id );
 
     foreach ( $candidates as $url ) {
         if ( $url ) return cd_normalize_upload_url( $url );
@@ -1044,24 +1151,10 @@ function cd_get_post_image_url( $post_id, $size = 'full' ) {
 }
 
 function cd_get_post_image_fallback_url( $post_id, $primary = '' ) {
-    if ( cd_has_featured_image( $post_id ) ) {
-        $url = cd_get_featured_image_url( $post_id, 'full' );
-        $url = $url ? cd_normalize_upload_url( $url ) : '';
+    $url = cd_get_featured_image_url( $post_id, 'full' );
+    $url = $url ? cd_normalize_upload_url( $url ) : '';
 
-        return ( $url && $url !== $primary ) ? $url : '';
-    }
-
-    $candidates = array(
-        cd_get_attached_image_url( $post_id, 'full' ),
-        cd_get_first_content_image_url( $post_id ),
-    );
-
-    foreach ( $candidates as $url ) {
-        $url = $url ? cd_normalize_upload_url( $url ) : '';
-        if ( $url && $url !== $primary ) return $url;
-    }
-
-    return '';
+    return ( $url && $url !== $primary ) ? $url : '';
 }
 
 function cd_render_post_image( $post_id, $size = 'full', $args = array() ) {
@@ -1359,8 +1452,8 @@ add_filter('wpseo_metadesc', function($d) {
 /* ── OG IMAGE HELPER ── */
 function cd_get_og_image() {
     // For single posts: use the registered cd-hero crop (1100×420)
-    if ( is_singular() && has_post_thumbnail() ) {
-        $img = wp_get_attachment_image_src( get_post_thumbnail_id(), 'cd-hero' );
+    if ( is_singular() ) {
+        $img = wp_get_attachment_image_src( cd_get_selected_featured_image_id( get_queried_object_id() ), 'cd-hero' );
         if ( $img ) {
             return array( 'url' => $img[0], 'width' => $img[1], 'height' => $img[2] );
         }
@@ -1380,6 +1473,21 @@ function cd_get_og_image() {
         'height' => 630,
     );
 }
+
+/* Keep SEO-plugin social previews aligned with the selected featured image. */
+function cd_force_featured_social_image( $image_url ) {
+    if ( ! is_singular( 'post' ) ) return $image_url;
+
+    $featured_url = cd_get_featured_image_url( get_queried_object_id(), 'full' );
+    if ( $featured_url ) return $featured_url;
+
+    $fallback = cd_get_og_image();
+    return ! empty( $fallback['url'] ) ? $fallback['url'] : '';
+}
+add_filter( 'wpseo_opengraph_image', 'cd_force_featured_social_image', PHP_INT_MAX );
+add_filter( 'wpseo_twitter_image', 'cd_force_featured_social_image', PHP_INT_MAX );
+add_filter( 'rank_math/opengraph/facebook/image', 'cd_force_featured_social_image', PHP_INT_MAX );
+add_filter( 'rank_math/opengraph/twitter/image', 'cd_force_featured_social_image', PHP_INT_MAX );
 
 /* ── BREADCRUMB SCHEMA HELPER ── */
 function cd_get_breadcrumb_schema() {
@@ -1628,8 +1736,8 @@ function cd_inject_seo() {
         if ( $n_tags ) {
             $article['keywords'] = implode( ', ', wp_list_pluck( $n_tags, 'name' ) );
         }
-        if ( has_post_thumbnail() ) {
-            $img_src = wp_get_attachment_image_src( get_post_thumbnail_id(), 'cd-hero' );
+        if ( cd_has_featured_image( $post->ID ) ) {
+            $img_src = wp_get_attachment_image_src( cd_get_selected_featured_image_id( $post->ID ), 'cd-hero' );
             if ( $img_src ) {
                 $article['image'] = array(
                     '@type'  => 'ImageObject',
@@ -1707,8 +1815,8 @@ function cd_preload_hero_image() {
     if ( is_singular() ) {
         // On single posts/pages the global $post is already populated
         global $post;
-        if ( $post && has_post_thumbnail( $post->ID ) ) {
-            $hero_url = get_the_post_thumbnail_url( $post->ID, 'cd-hero' );
+        if ( $post && cd_has_featured_image( $post->ID ) ) {
+            $hero_url = cd_get_featured_image_url( $post->ID, 'cd-hero' );
         }
     } elseif ( is_front_page() || is_home() ) {
         // Cache the latest post thumbnail URL so we don't hit the DB every load
@@ -1720,7 +1828,7 @@ function cd_preload_hero_image() {
                 'ignore_sticky_posts' => true,
             ) );
             $hero_url = ! empty( $posts )
-                ? (string) get_the_post_thumbnail_url( $posts[0]->ID, 'cd-hero' )
+                ? (string) cd_get_featured_image_url( $posts[0]->ID, 'cd-hero' )
                 : '';
             set_transient( 'cd_hero_preload_url', $hero_url, 10 * MINUTE_IN_SECONDS );
         }
