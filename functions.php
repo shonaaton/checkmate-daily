@@ -4,7 +4,7 @@
  * Updates: SEO Taxonomy Slug changed to 'chess-in'
  */
 if (!defined('ABSPATH')) exit;
-define('CD_VERSION', '2.1.22');
+define('CD_VERSION', '2.1.23');
 define('CD_DIR', get_template_directory());
 define('CD_URI', get_template_directory_uri());
 
@@ -602,6 +602,190 @@ function cd_store_featured_image_registry_id( $post_id, $attachment_id ) {
     return update_option( cd_get_featured_image_registry_option( $post_id ), $attachment_id, false );
 }
 
+/* Keep the three editable Yoast snippet fields through unreliable meta saves. */
+function cd_get_yoast_editor_meta_keys() {
+    return array(
+        '_yoast_wpseo_focuskw',
+        '_yoast_wpseo_title',
+        '_yoast_wpseo_metadesc',
+    );
+}
+
+function cd_get_yoast_editor_registry_option( $post_id ) {
+    return 'cd_yoast_editor_meta_' . (int) $post_id;
+}
+
+function cd_get_yoast_editor_registry( $post_id ) {
+    $post_id = (int) $post_id;
+    if ( $post_id <= 0 ) return array();
+
+    $registry = get_option( cd_get_yoast_editor_registry_option( $post_id ), array() );
+    return is_array( $registry ) ? $registry : array();
+}
+
+function cd_store_yoast_editor_values( $post_id, $values, $source = 'unknown' ) {
+    $post_id = (int) $post_id;
+    if ( $post_id <= 0 || ! current_user_can( 'edit_post', $post_id ) || ! is_array( $values ) ) {
+        return false;
+    }
+
+    $allowed  = cd_get_yoast_editor_meta_keys();
+    $registry = cd_get_yoast_editor_registry( $post_id );
+    $prepared = array();
+
+    foreach ( $values as $meta_key => $raw_value ) {
+        if ( ! in_array( $meta_key, $allowed, true ) || ! is_scalar( $raw_value ) ) continue;
+
+        $value = sanitize_textarea_field( wp_unslash( (string) $raw_value ) );
+        $prepared[ $meta_key ] = $value;
+
+        if ( '' === $value ) {
+            unset( $registry[ $meta_key ] );
+            continue;
+        }
+
+        $registry[ $meta_key ] = $value;
+    }
+
+    if ( ! $prepared ) return false;
+
+    if ( $registry ) {
+        update_option( cd_get_yoast_editor_registry_option( $post_id ), $registry, false );
+    } else {
+        delete_option( cd_get_yoast_editor_registry_option( $post_id ) );
+    }
+
+    $GLOBALS['cd_bypass_yoast_editor_registry_read'] = true;
+    foreach ( $prepared as $meta_key => $value ) {
+        if ( '' === $value ) {
+            $GLOBALS['cd_allow_yoast_editor_meta_delete'][ $post_id ][ $meta_key ] = true;
+            delete_post_meta( $post_id, $meta_key );
+            unset( $GLOBALS['cd_allow_yoast_editor_meta_delete'][ $post_id ][ $meta_key ] );
+        } else {
+            update_post_meta( $post_id, $meta_key, $value );
+        }
+    }
+    unset( $GLOBALS['cd_bypass_yoast_editor_registry_read'] );
+
+    update_option( 'cd_yoast_editor_last_save_' . $post_id, wp_json_encode( array(
+        'time'   => current_time( 'mysql' ),
+        'source' => sanitize_key( $source ),
+        'keys'   => array_keys( $prepared ),
+    ) ), false );
+    clean_post_cache( $post_id );
+
+    return true;
+}
+
+function cd_get_yoast_values_from_rest_request( $request ) {
+    if ( ! $request instanceof WP_REST_Request ) return array();
+
+    $meta = $request->get_param( 'meta' );
+    if ( ! is_array( $meta ) ) return array();
+
+    $values = array();
+    foreach ( cd_get_yoast_editor_meta_keys() as $meta_key ) {
+        if ( array_key_exists( $meta_key, $meta ) ) {
+            $values[ $meta_key ] = $meta[ $meta_key ];
+        }
+    }
+
+    return $values;
+}
+
+/* Capture values before another save callback can clear them. */
+function cd_capture_yoast_values_before_rest_save( $response, $handler, $request ) {
+    if ( ! $request instanceof WP_REST_Request || ! is_user_logged_in() ) return $response;
+    if ( ! in_array( $request->get_method(), array( 'POST', 'PUT', 'PATCH' ), true ) ) return $response;
+    if ( ! preg_match( '#^/wp/v2/posts/(\d+)$#', $request->get_route(), $matches ) ) return $response;
+
+    $values = cd_get_yoast_values_from_rest_request( $request );
+    if ( $values ) {
+        cd_store_yoast_editor_values( (int) $matches[1], $values, 'rest_request_before_callbacks' );
+    }
+
+    return $response;
+}
+add_filter( 'rest_request_before_callbacks', 'cd_capture_yoast_values_before_rest_save', 2, 3 );
+
+/* Re-apply the captured values after the post and plugin callbacks finish. */
+function cd_restore_yoast_values_after_rest_save( $post, $request, $creating ) {
+    if ( ! $post instanceof WP_Post || 'post' !== $post->post_type ) return;
+
+    $values = cd_get_yoast_values_from_rest_request( $request );
+    if ( $values ) {
+        cd_store_yoast_editor_values( $post->ID, $values, 'rest_after_insert_post' );
+    }
+}
+add_action( 'rest_after_insert_post', 'cd_restore_yoast_values_after_rest_save', 110, 3 );
+
+/* Support the classic editor names as well as the underscored database keys. */
+function cd_restore_classic_yoast_values_after_save( $post_id, $post, $update ) {
+    if ( ! $post instanceof WP_Post || 'post' !== $post->post_type ) return;
+    if ( wp_is_post_autosave( $post_id ) || wp_is_post_revision( $post_id ) ) return;
+
+    $values = array();
+    foreach ( cd_get_yoast_editor_meta_keys() as $meta_key ) {
+        $form_key = ltrim( $meta_key, '_' );
+        if ( isset( $_POST[ $meta_key ] ) ) {
+            $values[ $meta_key ] = $_POST[ $meta_key ];
+        } elseif ( isset( $_POST[ $form_key ] ) ) {
+            $values[ $meta_key ] = $_POST[ $form_key ];
+        }
+    }
+
+    if ( $values ) {
+        cd_store_yoast_editor_values( $post_id, $values, 'classic_save_post' );
+    }
+}
+add_action( 'save_post_post', 'cd_restore_classic_yoast_values_after_save', 110, 3 );
+
+/* A stored non-empty editor value may only be cleared by an explicit empty save. */
+function cd_protect_yoast_editor_meta( $delete, $post_id, $meta_key, $meta_value, $delete_all ) {
+    if ( ! in_array( $meta_key, cd_get_yoast_editor_meta_keys(), true ) || 'post' !== get_post_type( $post_id ) ) {
+        return $delete;
+    }
+    if ( ! empty( $GLOBALS['cd_allow_yoast_editor_meta_delete'][ $post_id ][ $meta_key ] ) ) return $delete;
+
+    $registry = cd_get_yoast_editor_registry( $post_id );
+    return ! empty( $registry[ $meta_key ] ) ? false : $delete;
+}
+add_filter( 'delete_post_metadata', 'cd_protect_yoast_editor_meta', 100, 5 );
+
+/* If host-side cleanup bypasses WordPress hooks, serve the saved registry value. */
+function cd_restore_yoast_editor_meta_on_read( $value, $post_id, $meta_key, $single, $meta_type = 'post' ) {
+    if ( ! empty( $GLOBALS['cd_bypass_yoast_editor_registry_read'] ) ) return $value;
+    if ( ! in_array( $meta_key, cd_get_yoast_editor_meta_keys(), true ) ) return $value;
+
+    $registry = cd_get_yoast_editor_registry( $post_id );
+    if ( ! array_key_exists( $meta_key, $registry ) || '' === $registry[ $meta_key ] ) return $value;
+
+    return $single ? $registry[ $meta_key ] : array( $registry[ $meta_key ] );
+}
+add_filter( 'get_post_metadata', 'cd_restore_yoast_editor_meta_on_read', 100, 5 );
+
+function cd_ajax_save_yoast_editor_values() {
+    check_ajax_referer( 'cd_yoast_editor_guard', 'nonce' );
+
+    $post_id = isset( $_POST['post_id'] ) ? (int) wp_unslash( $_POST['post_id'] ) : 0;
+    if ( $post_id <= 0 || ! current_user_can( 'edit_post', $post_id ) ) {
+        wp_send_json_error( array( 'message' => 'Not allowed to edit this post.' ), 403 );
+    }
+
+    $decoded = isset( $_POST['values'] )
+        ? json_decode( wp_unslash( (string) $_POST['values'] ), true )
+        : array();
+    $source = isset( $_POST['source'] ) ? sanitize_key( wp_unslash( $_POST['source'] ) ) : 'editor_ajax_guard';
+    $saved = cd_store_yoast_editor_values( $post_id, is_array( $decoded ) ? $decoded : array(), $source );
+
+    wp_send_json_success( array(
+        'saved'    => cd_debug_yes_no( $saved ),
+        'post_id'  => $post_id,
+        'registry' => cd_get_yoast_editor_registry( $post_id ),
+    ) );
+}
+add_action( 'wp_ajax_cd_save_yoast_editor_values', 'cd_ajax_save_yoast_editor_values' );
+
 /*
  * Capture the editor's selection before the post controller runs. This keeps
  * the image even when another save callback fails before rest_after_insert_post.
@@ -882,6 +1066,7 @@ function cd_enqueue_featured_image_editor_guard() {
         /* Relative URLs stay on the editor's current host/scheme after migration. */
         'ajaxurl'       => admin_url( 'admin-ajax.php', 'relative' ),
         'nonce'         => wp_create_nonce( 'cd_featured_image_guard' ),
+        'seoNonce'      => wp_create_nonce( 'cd_yoast_editor_guard' ),
         'locationNonce' => wp_create_nonce( 'cd_location_term_guard' ),
         'restFallback'  => home_url( '/?rest_route=', 'relative' ),
     );
@@ -2240,6 +2425,7 @@ function cd_register_media_video_hub() {
         'public'             => true,
         'has_archive'        => 'videos',
         'publicly_queryable' => true,
+        'exclude_from_search'=> true,
         'show_ui'            => true,
         'show_in_menu'       => true,
         'menu_icon'          => 'dashicons-video-alt3',
